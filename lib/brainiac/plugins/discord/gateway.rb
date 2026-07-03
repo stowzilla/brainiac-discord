@@ -139,10 +139,15 @@ module Brainiac
           end
 
           def run_gateway_connection(agent_key, agent_display, bot_token, bot_user_id)
-            @bots_mutex.synchronize do
-              @bots[agent_key] ||= {}
-              @bots[agent_key][:status] = "connecting"
-              @bots[agent_key][:token] = bot_token
+            # Capture module-level ivars in local variables so the event_emitter
+            # blocks (which run via instance_exec on the WS client) can access them.
+            bots = @bots
+            bots_mutex = @bots_mutex
+
+            bots_mutex.synchronize do
+              bots[agent_key] ||= {}
+              bots[agent_key][:status] = "connecting"
+              bots[agent_key][:token] = bot_token
             end
 
             LOG.debug "[Discord:#{agent_display}] Connecting to Gateway..." if defined?(LOG) && LOG.respond_to?(:debug)
@@ -168,8 +173,8 @@ module Brainiac
             end
 
             ws.on :close do |_e|
-              @bots_mutex.synchronize do
-                @bots[agent_key][:status] = "disconnected" if @bots[agent_key]
+              bots_mutex.synchronize do
+                bots[agent_key][:status] = "disconnected" if bots[agent_key]
               end
               LOG.warn "[Discord:#{agent_display}] WebSocket closed" if defined?(LOG)
               heartbeat_thread&.kill
