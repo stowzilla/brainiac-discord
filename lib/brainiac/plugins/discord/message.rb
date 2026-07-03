@@ -630,7 +630,7 @@ module Brainiac
                            discord_user:, channel_name:, reply_context:, channel_history:, thread_root_context:,
                            project_context:, response_file:, card_id:, brain_context:, agent_name:)
             if should_resume && thread_worktree_path
-              return render_discord_resume_prompt(
+              return Brainiac::Plugins::Discord::Prompts.render_resume(
                 message_body: clean_content_for_prompt, discord_user: discord_user,
                 response_file: response_file, agent_name: agent_name, card_id: card_id
               )

@@ -103,6 +103,33 @@ module Brainiac
 
           **IMPORTANT: Write your response to `{{RESPONSE_FILE}}`. Do NOT reply via stdout.**
         PROMPT
+
+        # Lean resume prompt for Discord threads. The previous session has full context
+        # (role, persona, knowledge, instructions). We only send the new message.
+        def self.render_resume(message_body:, discord_user:, response_file:, agent_name: AI_AGENT_NAME, card_id: nil)
+          memory_dir = memory_dir_for(agent_name)
+          if card_id
+            memory_file = File.join(memory_dir, "card-#{card_id}.md")
+            FileUtils.mkdir_p(memory_dir)
+            FileUtils.touch(memory_file)
+          end
+
+          lines = []
+          lines << "## Resumed Session — New Discord Message"
+          lines << ""
+          lines << "This is a continuation of your previous session in this thread."
+          lines << "All prior context, instructions, and your previous work are still in this conversation."
+          lines << ""
+          lines << "### New Message from #{discord_user}"
+          lines << ""
+          lines << message_body
+          lines << ""
+          lines << "---"
+          lines << "**IMPORTANT: Write your response to `#{response_file}`. Do NOT reply via stdout.**"
+          lines << "All your previous instructions still apply (memory, persona, one message per session, etc.)."
+
+          lines.join("\n")
+        end
       end
     end
   end
