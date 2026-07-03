@@ -25,6 +25,12 @@ module Brainiac
           # Register channel prompt
           Brainiac.register_channel_prompt(:discord, Brainiac::Plugins::Discord::Prompts::CHANNEL)
 
+          # Register as notification provider
+          register_notification_handler!
+
+          # Register crash handler
+          register_crash_handler!
+
           # Start all per-agent Discord bot gateway connections
           Brainiac::Plugins::Discord::Gateway.start_all!
 
@@ -38,6 +44,62 @@ module Brainiac
         end
 
         private
+
+        def register_notification_handler!
+          Brainiac.on(:notify) do |ctx|
+            next unless ctx[:channel].to_s == "discord"
+
+            target = ctx[:target]
+            message = ctx[:message]
+            agent = ctx[:agent]
+
+            agent_key = agent&.downcase&.gsub(/[^a-z0-9-]/, "-")
+            token = Gateway.bot_token(agent_key) ||
+                    Gateway.discord_bot_tokens[agent_key] ||
+                    Gateway.discord_bot_tokens.values.first
+            next unless token && target
+
+            # Handle forum posts
+            if ctx[:forum_title] && Api.forum_channel?(target, token: token)
+              Api.create_forum_post(target, title: ctx[:forum_title], content: message, token: token)
+            elsif ctx[:forum_reply_to_latest] && Api.forum_channel?(target, token: token)
+              latest = Api.find_latest_forum_thread(target, token: token)
+              if latest
+                Api.send_long_message(latest["id"], message, token: token)
+              else
+                Api.send_long_message(target, message, token: token)
+              end
+            else
+              Api.send_long_message(target, message, token: token)
+            end
+
+            :discord # Signal that we handled it
+          end
+        end
+
+        def register_crash_handler!
+          Brainiac.on(:agent_crashed) do |ctx|
+            next unless %i[discord cron].include?(ctx[:source])
+
+            source_context = ctx[:source_context] || {}
+            channel_id = source_context[:channel_id] || source_context.dig(:job, :notify_target) || source_context.dig(:job, :discord_channel_id)
+            next unless channel_id
+
+            bot_token = source_context[:bot_token]
+            unless bot_token
+              agent_key = source_context.dig(:job, :agent)&.downcase&.gsub(/[^a-z0-9-]/, "-")
+              bot_token = Gateway.bot_token(agent_key) || Gateway.discord_bot_tokens.values.first
+            end
+            next unless bot_token
+
+            snippet = ctx[:snippet]
+            snippet_block = snippet ? "\n```\n#{snippet[-1500..]}\n```" : ""
+            message = "💥 **#{ctx[:agent_name]} crashed** (exit code #{ctx[:exit_status]})\nLog: `#{ctx[:log_file]}`#{snippet_block}"
+
+            Api.send_long_message(channel_id, message, token: bot_token, reply_to: source_context[:message_id])
+            :discord
+          end
+        end
 
         def setup_routes(app)
           app.get "/api/discord" do
