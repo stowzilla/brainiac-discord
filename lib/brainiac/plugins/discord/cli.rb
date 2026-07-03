@@ -151,6 +151,17 @@ module Brainiac
             puts "============="
             puts ""
 
+            # Copy example config if none exists
+            unless File.exist?(DISCORD_CONFIG_FILE)
+              template = File.expand_path("../../../../templates/discord.json.example", __dir__)
+              if File.exist?(template)
+                FileUtils.mkdir_p(BRAINIAC_DIR)
+                FileUtils.cp(template, DISCORD_CONFIG_FILE)
+                puts "✓ Created #{DISCORD_CONFIG_FILE} from template"
+                puts ""
+              end
+            end
+
             config = load_discord_config
 
             if config["default_project"]

@@ -1,0 +1,15 @@
+{
+  "default_project": "marketplace",
+  "channel_mappings": {
+    "OPTIONAL_CHANNEL_ID": {
+      "project": "brainiac"
+    }
+  },
+  "user_mappings": {
+    "Andy": "DISCORD_USER_ID",
+    "Adam": "DISCORD_USER_ID"
+  },
+  "authorized_role_ids": [],
+  "authorized_user_ids": [],
+  "giphy_api_key": null
+}
