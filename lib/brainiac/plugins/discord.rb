@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "discord/version"
+require_relative "discord/cli"
 require_relative "discord/config"
 require_relative "discord/prompts"
 require_relative "discord/api"
