@@ -253,6 +253,11 @@ module Brainiac
       def self.cli(args)
         Cli.run(args)
       end
+
+      # Subcommand names for bash completion.
+      def self.completions
+        %w[setup config default map owner token status]
+      end
     end
   end
 end
