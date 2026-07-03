@@ -155,7 +155,8 @@ module Brainiac
 
               payload = JSON.parse(msg.data)
               last_sequence = payload["s"] if payload["s"]
-              heartbeat_thread, bot_user_id = handle_gateway_op(
+              heartbeat_thread, bot_user_id = Gateway.send(
+                :handle_gateway_op,
                 ws, payload, agent_key, agent_display, bot_token, bot_user_id, heartbeat_thread, last_sequence
               )
             rescue StandardError => e

@@ -658,7 +658,8 @@ module Brainiac
 
             resolved = resolve_project_cli_config(project_config || DEFAULT_PROJECT,
                                                   cli_provider_override: cli_provider_override, agent_name: agent_name)
-            cmd = build_agent_cli_cmd(resolved, agent_config_name, model, effort, should_resume, prompt_file)
+            cmd = build_agent_cmd(resolved, agent_config_name: agent_config_name, model: model, effort: effort,
+                                            prompt_file: prompt_file, resume: should_resume)
 
             resume_note = should_resume ? ", resuming" : ""
             if defined?(LOG)

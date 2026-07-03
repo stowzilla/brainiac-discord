@@ -11,6 +11,21 @@ class TestDiscordPlugin < Minitest::Test
     assert_match(/\A\d+\.\d+\.\d+\z/, Brainiac::Plugins::Discord::VERSION)
   end
 
+  def test_configured_returns_boolean
+    result = Brainiac::Plugins::Discord.configured?
+    assert_includes [true, false], result
+  end
+
+  def test_help_text_defined
+    text = Brainiac::Plugins::Discord.help_text
+    assert_kind_of String, text
+    assert_includes text, "brainiac discord"
+  end
+
+  def test_cli_method_exists
+    assert_respond_to Brainiac::Plugins::Discord, :cli
+  end
+
   def test_prompts_channel_defined
     assert_kind_of String, Brainiac::Plugins::Discord::Prompts::CHANNEL
     assert_includes Brainiac::Plugins::Discord::Prompts::CHANNEL, "Discord"
