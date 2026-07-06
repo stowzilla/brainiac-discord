@@ -567,8 +567,7 @@ module Brainiac
 
           def thread_resume?(project_config, clean_content, thread_cli_provider, agent_name)
             effective_provider = detect_cli_provider(text: clean_content) || thread_cli_provider
-            resolved = resolve_project_cli_config(project_config, cli_provider_override: effective_provider, agent_name: agent_name)
-            resolved["resume_flag"] ? true : false
+            resume_viable?(project_config: project_config, cli_provider: effective_provider, agent_name: agent_name)
           end
 
           def detect_thread_overrides(project_config, clean_content, fallback_cli: nil, fallback_model: nil, fallback_effort: nil)
