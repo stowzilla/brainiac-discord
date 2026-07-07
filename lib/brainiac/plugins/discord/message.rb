@@ -31,7 +31,9 @@ module Brainiac
             channel_info, is_thread, is_dm, in_own_thread = detect_channel_context(message, channel_id, mentioned, is_reply_to_bot, bot_token,
                                                                                    bot_user_id)
             return if should_stand_down?(in_own_thread, mentioned, is_reply_to_bot, is_bot, agent_key, mentions, content)
-            return unless mentioned || in_own_thread || is_dm || is_reply_to_bot
+            is_thread_participant = !mentioned && !in_own_thread && is_thread &&
+                                   thread_participant?(channel_id, message_id, bot_user_id, bot_token)
+            return unless mentioned || in_own_thread || is_dm || is_reply_to_bot || is_thread_participant
 
             record_human_comment("discord-#{channel_id}") unless is_bot
 
@@ -156,6 +158,24 @@ module Brainiac
             end
 
             other_bot_mentioned
+          end
+
+          # Check if this bot was previously mentioned in the thread (making it a participant).
+          # Uses a small history fetch to avoid excessive API calls.
+          def thread_participant?(channel_id, before_message_id, bot_user_id, bot_token)
+            messages = Api.request(:get, "/channels/#{channel_id}/messages?before=#{before_message_id}&limit=50", token: bot_token)
+            return false unless messages.is_a?(Array)
+
+            bot_id_str = bot_user_id.to_s
+            messages.any? do |msg|
+              mentions = msg["mentions"] || []
+              mentions.any? { |m| m["id"].to_s == bot_id_str } ||
+                (msg["content"] || "").match?(/<@!?#{Regexp.escape(bot_id_str)}>/) ||
+                msg.dig("author", "id").to_s == bot_id_str
+            end
+          rescue StandardError => e
+            LOG.warn "[Discord] Failed to check thread participation: #{e.message}" if defined?(LOG)
+            false
           end
 
           def prepare_content(content, bot_user_id)

@@ -204,4 +204,47 @@ class TestDiscordMessage < Minitest::Test
   def test_message_module_exists
     assert_respond_to Brainiac::Plugins::Discord::Message, :handle
   end
+
+  def test_thread_participant_returns_true_when_bot_was_mentioned
+    messages = [
+      { "content" => "Hey <@123456> check this out", "mentions" => [{ "id" => "123456" }], "author" => { "id" => "999" } },
+      { "content" => "Some other message", "mentions" => [], "author" => { "id" => "888" } }
+    ]
+
+    Brainiac::Plugins::Discord::Api.stub(:request, messages) do
+      result = Brainiac::Plugins::Discord::Message.send(:thread_participant?, "ch1", "msg99", "123456", "token")
+      assert result, "Should detect bot as thread participant when mentioned in history"
+    end
+  end
+
+  def test_thread_participant_returns_true_when_bot_posted
+    messages = [
+      { "content" => "I posted this", "mentions" => [], "author" => { "id" => "123456" } },
+      { "content" => "Some other message", "mentions" => [], "author" => { "id" => "888" } }
+    ]
+
+    Brainiac::Plugins::Discord::Api.stub(:request, messages) do
+      result = Brainiac::Plugins::Discord::Message.send(:thread_participant?, "ch1", "msg99", "123456", "token")
+      assert result, "Should detect bot as thread participant when it posted previously"
+    end
+  end
+
+  def test_thread_participant_returns_false_when_bot_not_in_history
+    messages = [
+      { "content" => "Hello world", "mentions" => [], "author" => { "id" => "999" } },
+      { "content" => "Some other message", "mentions" => [], "author" => { "id" => "888" } }
+    ]
+
+    Brainiac::Plugins::Discord::Api.stub(:request, messages) do
+      result = Brainiac::Plugins::Discord::Message.send(:thread_participant?, "ch1", "msg99", "123456", "token")
+      refute result, "Should not detect bot as participant when absent from history"
+    end
+  end
+
+  def test_thread_participant_returns_false_on_api_error
+    Brainiac::Plugins::Discord::Api.stub(:request, nil) do
+      result = Brainiac::Plugins::Discord::Message.send(:thread_participant?, "ch1", "msg99", "123456", "token")
+      refute result, "Should return false when API returns nil"
+    end
+  end
 end
