@@ -79,6 +79,27 @@ module Brainiac
             end
           end
 
+          # Start a single bot gateway connection dynamically (e.g. after agent is added).
+          # No-op if the bot is already running.
+          def start_bot!(agent_key, token)
+            @bots_mutex.synchronize do
+              return if @bots[agent_key]
+
+              @bots[agent_key] = { token: token, status: "starting", user_id: nil }
+            end
+            start_gateway_for(agent_key, token)
+          end
+
+          # Stop a bot gateway connection (e.g. after agent is removed).
+          # Removes it from the bots hash so it won't be matched in detect_sender_agent.
+          def stop_bot!(agent_key)
+            info = @bots_mutex.synchronize { @bots.delete(agent_key) }
+            return unless info
+
+            info[:thread]&.kill
+            LOG.info "[Discord] Gateway stopped for #{agent_key}" if defined?(LOG)
+          end
+
           # Summary of all bot statuses for the API endpoint.
           def bots_status
             @bots_mutex.synchronize do
@@ -122,7 +143,7 @@ module Brainiac
           private
 
           def start_gateway_for(agent_key, bot_token)
-            Thread.new do
+            thread = Thread.new do
               agent_display = agent_display_name(agent_key) || agent_key.capitalize
               bot_user_id = nil
 
@@ -136,6 +157,7 @@ module Brainiac
                 sleep 5
               end
             end
+            @bots_mutex.synchronize { @bots[agent_key][:thread] = thread if @bots[agent_key] }
           end
 
           def run_gateway_connection(agent_key, agent_display, bot_token, bot_user_id)

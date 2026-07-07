@@ -31,6 +31,9 @@ module Brainiac
           # Register crash handler
           register_crash_handler!
 
+          # Register agent lifecycle hooks
+          register_agent_lifecycle_hooks!
+
           # Start all per-agent Discord bot gateway connections
           Brainiac::Plugins::Discord::Gateway.start_all!
 
@@ -44,6 +47,30 @@ module Brainiac
         end
 
         private
+
+        def register_agent_lifecycle_hooks!
+          Brainiac.on(:agent_added) do |ctx|
+            agent_key = ctx[:agent_key]
+            entry = ctx[:entry]
+            display_name = ctx[:display_name]
+            next unless entry.is_a?(Hash)
+
+            token = (entry["env"] || {})["DISCORD_BOT_TOKEN"]
+            if token
+              # Start a gateway connection for the new agent's bot
+              Gateway.start_bot!(agent_key, token)
+              LOG.info "[Discord] Started bot for new agent: #{display_name}" if defined?(LOG)
+            end
+          end
+
+          Brainiac.on(:agent_removed) do |ctx|
+            agent_key = ctx[:agent_key]
+
+            # Stop the gateway connection if running
+            Gateway.stop_bot!(agent_key)
+            LOG.info "[Discord] Stopped bot for removed agent: #{agent_key}" if defined?(LOG)
+          end
+        end
 
         def register_notification_handler!
           Brainiac.on(:notify) do |ctx|
