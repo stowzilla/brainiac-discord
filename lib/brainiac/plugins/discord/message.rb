@@ -31,8 +31,9 @@ module Brainiac
             channel_info, is_thread, is_dm, in_own_thread = detect_channel_context(message, channel_id, mentioned, is_reply_to_bot, bot_token,
                                                                                    bot_user_id)
             return if should_stand_down?(in_own_thread, mentioned, is_reply_to_bot, is_bot, agent_key, mentions, content)
+
             is_thread_participant = !mentioned && !in_own_thread && is_thread &&
-                                   thread_participant?(channel_id, message_id, bot_user_id, bot_token)
+                                    thread_participant?(channel_id, message_id, bot_user_id, bot_token)
             return unless mentioned || in_own_thread || is_dm || is_reply_to_bot || is_thread_participant
 
             record_human_comment("discord-#{channel_id}") unless is_bot
