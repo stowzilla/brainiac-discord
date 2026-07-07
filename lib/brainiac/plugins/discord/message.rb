@@ -284,6 +284,12 @@ module Brainiac
               return
             end
             handle_supersede(is_bot, supersede_key, discord_user, agent_name, bot_token)
+
+            if intent_skip?(clean_content, agent_name: agent_name, source: :discord, channel: "Discord #{is_thread ? "thread" : "channel"}")
+              LOG.info "[Discord:#{agent_name}] Intent skip — not dispatching for: #{clean_content[0..80]}" if defined?(LOG)
+              return
+            end
+
             Thread.new do
               Api.remove_reaction(channel_id, message_id, "🛑", token: bot_token)
               Api.add_reaction(channel_id, message_id, "👀", token: bot_token)
