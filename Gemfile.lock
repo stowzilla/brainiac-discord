@@ -1,8 +1,8 @@
 PATH
   remote: .
   specs:
-    brainiac-discord (0.0.2)
-      brainiac (>= 0.0.9)
+    brainiac-discord (0.0.3)
+      brainiac (>= 0.0.14)
       websocket-client-simple (~> 0.8)
 
 GEM
@@ -10,11 +10,10 @@ GEM
   specs:
     ast (2.4.3)
     base64 (0.3.0)
-    brainiac (0.0.9)
+    brainiac (0.0.14)
       puma (~> 7.2)
       rackup (~> 2.3)
       sinatra (~> 4.1)
-      websocket-client-simple (~> 0.8.0)
     event_emitter (0.2.6)
     json (2.20.0)
     language_server-protocol (3.17.0.5)
@@ -93,8 +92,8 @@ DEPENDENCIES
 CHECKSUMS
   ast (2.4.3) sha256=954615157c1d6a382bc27d690d973195e79db7f55e9765ac7c481c60bdb4d383
   base64 (0.3.0) sha256=27337aeabad6ffae05c265c450490628ef3ebd4b67be58257393227588f5a97b
-  brainiac (0.0.9) sha256=af8f057e1967fc0250961bbcbf5fc7dc6901d3b6f7eae4d37246ebb46eee005b
-  brainiac-discord (0.0.2)
+  brainiac (0.0.14) sha256=586ea04a1205f98858c45e2266c858382a0db92d328b336f2c93bd305df1d623
+  brainiac-discord (0.0.3)
   event_emitter (0.2.6) sha256=c72697bd5cce9d36594be1972c17f1c9a573236f44303a4d1d548080364e1391
   json (2.20.0) sha256=9362bc6e55a952b056abf9167cf053358181c904cb70cd6eee0808ea830fc32b
   language_server-protocol (3.17.0.5) sha256=fd1e39a51a28bf3eec959379985a72e296e9f9acfce46f6a79d31ca8760803cc
