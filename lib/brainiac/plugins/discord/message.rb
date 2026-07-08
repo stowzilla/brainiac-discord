@@ -24,7 +24,8 @@ module Brainiac
 
             mentions = message["mentions"] || []
             mentioned = mentions.any? { |m| m["id"].to_s == bot_user_id.to_s } ||
-                        content.match?(/<@!?#{Regexp.escape(bot_user_id.to_s)}>/)
+                        content.match?(/<@!?#{Regexp.escape(bot_user_id.to_s)}>/) ||
+                        role_mentioned?(message, content, agent_key)
             return if sender_agent_key && !validate_cross_agent_dispatch(sender_agent_key, agent_key, mentioned, content, channel_id)
 
             is_reply_to_bot, referenced_message = detect_reply_to_bot(message, channel_id, mentioned, bot_token, bot_user_id)
@@ -75,6 +76,17 @@ module Brainiac
           end
 
           private
+
+          # Check if the agent's Discord role was @mentioned in this message.
+          # Discord role mentions use <@&ROLE_ID> syntax and populate mention_roles array.
+          def role_mentioned?(message, content, agent_key)
+            role_id = Config.role_id_for_agent(agent_key)
+            return false unless role_id
+
+            mention_roles = message["mention_roles"] || []
+            mention_roles.any? { |r| r.to_s == role_id } ||
+              content.match?(/<@&#{Regexp.escape(role_id)}>/)
+          end
 
           def validate_cross_agent_dispatch(sender_agent_key, agent_key, mentioned, content, channel_id)
             return false unless mentioned
