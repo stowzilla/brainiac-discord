@@ -37,6 +37,10 @@ module Brainiac
                                     thread_participant?(channel_id, message_id, bot_user_id, bot_token)
             return unless mentioned || in_own_thread || is_dm || is_reply_to_bot || is_thread_participant
 
+            # When another agent is explicitly mentioned, thread participants who weren't
+            # addressed should not activate — the message was directed at someone specific.
+            return if is_thread_participant && other_agent_mentioned?(mentions, content, agent_key)
+
             record_human_comment("discord-#{channel_id}") unless is_bot
 
             clean_content = prepare_content(content, bot_user_id)
@@ -87,6 +91,26 @@ module Brainiac
             mention_roles = message["mention_roles"] || []
             mention_roles.any? { |r| r.to_s == role_id } ||
               content.match?(/<@&#{Regexp.escape(role_id)}>/)
+          end
+
+          # Check if another agent bot is explicitly mentioned in this message.
+          # When a user @mentions a specific agent, thread participants who weren't
+          # mentioned should stay silent — no intent check needed.
+          def other_agent_mentioned?(mentions, content, agent_key)
+            mention_roles = []
+
+            Gateway.each_bot do |key, info|
+              next if key == agent_key
+              next unless info[:user_id]
+
+              return true if mentions.any? { |m| m["id"].to_s == info[:user_id].to_s } ||
+                             content.match?(/<@!?#{Regexp.escape(info[:user_id].to_s)}>/)
+
+              role_id = Config.role_id_for_agent(key)
+              mention_roles << role_id if role_id
+            end
+
+            mention_roles.any? { |rid| content.match?(/<@&#{Regexp.escape(rid)}>/) }
           end
 
           def validate_cross_agent_dispatch(sender_agent_key, agent_key, mentioned, content, channel_id)

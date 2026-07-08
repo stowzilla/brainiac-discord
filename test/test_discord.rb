@@ -308,3 +308,58 @@ class TestDiscordMessage < Minitest::Test
     refute result, "Should return false when agent has no role_id configured"
   end
 end
+
+class TestOtherAgentMentioned < Minitest::Test
+  def setup
+    @original_bots = Brainiac::Plugins::Discord::Gateway.instance_variable_get(:@bots).dup
+    Brainiac::Plugins::Discord::Gateway.instance_variable_get(:@bots).merge!(
+      "galen" => { user_id: "1475925968584573181", token: "t1", status: "ready" },
+      "effie" => { user_id: "1520149980399272027", token: "t2", status: "ready" }
+    )
+  end
+
+  def teardown
+    Brainiac::Plugins::Discord::Gateway.instance_variable_set(:@bots, @original_bots)
+  end
+
+  def test_returns_true_when_another_bot_mentioned_in_mentions_array
+    mentions = [{ "id" => "1475925968584573181" }]
+    content = "<@1475925968584573181> fix this"
+    result = Brainiac::Plugins::Discord::Message.send(:other_agent_mentioned?, mentions, content, "effie")
+    assert result, "Effie should detect that Galen is mentioned"
+  end
+
+  def test_returns_true_when_another_bot_mentioned_in_content
+    mentions = []
+    content = "Hey <@1475925968584573181> fix this"
+    result = Brainiac::Plugins::Discord::Message.send(:other_agent_mentioned?, mentions, content, "effie")
+    assert result, "Effie should detect Galen mention in content"
+  end
+
+  def test_returns_false_when_no_other_bot_mentioned
+    mentions = []
+    content = "Hey everyone, what's up?"
+    result = Brainiac::Plugins::Discord::Message.send(:other_agent_mentioned?, mentions, content, "effie")
+    refute result, "Should return false when no bot is mentioned"
+  end
+
+  def test_returns_false_when_only_self_mentioned
+    mentions = [{ "id" => "1520149980399272027" }]
+    content = "<@1520149980399272027> do something"
+    result = Brainiac::Plugins::Discord::Message.send(:other_agent_mentioned?, mentions, content, "effie")
+    refute result, "Should not count self-mention as 'other agent mentioned'"
+  end
+
+  def test_returns_true_with_role_mention_of_another_agent
+    original_config = Brainiac::Plugins::Discord::Config.current.dup
+    new_config = original_config.merge("role_mappings" => { "Galen" => "1475937735545061521" })
+    Brainiac::Plugins::Discord::Config.instance_variable_set(:@config, new_config)
+
+    mentions = []
+    content = "Hey <@&1475937735545061521> fix this"
+    result = Brainiac::Plugins::Discord::Message.send(:other_agent_mentioned?, mentions, content, "effie")
+    assert result, "Effie should detect Galen's role mention"
+  ensure
+    Brainiac::Plugins::Discord::Config.instance_variable_set(:@config, original_config)
+  end
+end
