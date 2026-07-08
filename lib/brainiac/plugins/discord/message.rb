@@ -67,6 +67,14 @@ module Brainiac
             tags = parse_inline_tags(clean_content)
             project_key, project_config = resolve_project(tags[:project], parent_channel_id, agent_name, channel_id, message_id, bot_token)
 
+            # Thread owners bypass intent checking ONLY when they're the sole agent in
+            # the thread (1-on-1 with the human). If other agents have participated,
+            # everyone goes through intent checking unless explicitly @mentioned.
+            solo_thread_owner = in_own_thread && solo_in_thread?(channel_history, agent_key)
+            if in_own_thread && defined?(LOG)
+              LOG.info "[Discord:#{agent_name}] Own thread — #{solo_thread_owner ? "solo (bypassing intent)" : "multi-agent (intent check applies)"}"
+            end
+
             route_dispatch(
               agent_key: agent_key, agent_name: agent_name, bot_token: bot_token, is_bot: is_bot,
               channel_id: channel_id, message_id: message_id, message: message,
@@ -76,7 +84,7 @@ module Brainiac
               discord_user: discord_user, reply_context: reply_context,
               channel_history: channel_history, project_key: project_key,
               project_config: project_config, attachment_paths: attachment_paths,
-              directly_addressed: mentioned || is_reply_to_bot || in_own_thread || is_dm
+              directly_addressed: mentioned || is_reply_to_bot || is_dm || solo_thread_owner
             )
           end
 
@@ -214,6 +222,28 @@ module Brainiac
           rescue StandardError => e
             LOG.warn "[Discord] Failed to check thread participation: #{e.message}" if defined?(LOG)
             false
+          end
+
+          # Check if this agent is the only bot in the thread (1-on-1 with the human).
+          # Uses the already-fetched channel_history to avoid extra API calls.
+          # Returns true when no other agent bots have posted in the thread history,
+          # meaning it's safe to skip intent checking (the message is obviously for us).
+          def solo_in_thread?(channel_history, agent_key)
+            return true unless channel_history.is_a?(Array) && channel_history.any?
+
+            other_bot_ids = []
+            Gateway.each_bot do |key, info|
+              next if key == agent_key
+              next unless info[:user_id]
+
+              other_bot_ids << info[:user_id].to_s
+            end
+            return true if other_bot_ids.empty?
+
+            channel_history.none? do |msg|
+              author_id = msg.dig("author", "id").to_s
+              other_bot_ids.include?(author_id)
+            end
           end
 
           def prepare_content(content, bot_user_id)
