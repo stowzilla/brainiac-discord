@@ -71,7 +71,8 @@ module Brainiac
               channel_info: channel_info, parent_channel_id: parent_channel_id,
               discord_user: discord_user, reply_context: reply_context,
               channel_history: channel_history, project_key: project_key,
-              project_config: project_config, attachment_paths: attachment_paths
+              project_config: project_config, attachment_paths: attachment_paths,
+              directly_addressed: mentioned || is_reply_to_bot || in_own_thread || is_dm
             )
           end
 
@@ -309,7 +310,8 @@ module Brainiac
           def route_dispatch(agent_key:, agent_name:, bot_token:, is_bot:, channel_id:, message_id:, message:,
                              clean_content:, clean_content_for_prompt:, chat_mode:, is_thread:, is_dm:,
                              channel_info:, parent_channel_id:, discord_user:, reply_context:,
-                             channel_history:, project_key:, project_config:, attachment_paths:)
+                             channel_history:, project_key:, project_config:, attachment_paths:,
+                             directly_addressed: false)
             session_key = "discord-#{agent_key}-#{channel_id}-#{message_id}"
             supersede_key = "discord-#{agent_key}-#{channel_id}"
             if session_active?(session_key)
@@ -318,9 +320,11 @@ module Brainiac
             end
             handle_supersede(is_bot, supersede_key, discord_user, agent_name, bot_token)
 
-            if intent_skip?(clean_content, agent_name: agent_name, source: :discord, channel: "Discord #{is_thread ? "thread" : "channel"}")
-              LOG.info "[Discord:#{agent_name}] Intent skip — not dispatching for: #{clean_content[0..80]}" if defined?(LOG)
-              return
+            unless directly_addressed
+              if intent_skip?(clean_content, agent_name: agent_name, source: :discord, channel: "Discord #{is_thread ? "thread" : "channel"}")
+                LOG.info "[Discord:#{agent_name}] Intent skip — not dispatching for: #{clean_content[0..80]}" if defined?(LOG)
+                return
+              end
             end
 
             Thread.new do
