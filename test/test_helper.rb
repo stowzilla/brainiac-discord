@@ -131,6 +131,9 @@ def notify_agent_crash(**) = nil
 def brain_push(message:) = nil
 def find_user_by_discord_id(_id) = nil
 def persona_dir_for(name) = File.join(TEST_BRAINIAC_DIR, "brain", "persona", name.downcase)
+def intent_config = { "enabled" => true }
+def intent_skip?(_message, agent_name:, source: nil, channel: nil) = true
+def check_intent(_message, agent_name:, channel:) = false
 
 # Write discord.json for tests
 discord_config = {

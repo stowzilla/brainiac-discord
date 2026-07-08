@@ -277,4 +277,34 @@ class TestDiscordMessage < Minitest::Test
       refute result, "Should return false when API returns nil"
     end
   end
+
+  def test_role_mentioned_detects_role_id_from_mention_roles
+    original_config = Brainiac::Plugins::Discord::Config.current.dup
+    new_config = original_config.merge("role_mappings" => { "Galen" => "111222333" })
+    Brainiac::Plugins::Discord::Config.instance_variable_set(:@config, new_config)
+
+    message = { "mention_roles" => ["111222333"] }
+    result = Brainiac::Plugins::Discord::Message.send(:role_mentioned?, message, "test content", "galen")
+    assert result, "Should detect role mention from mention_roles array"
+  ensure
+    Brainiac::Plugins::Discord::Config.instance_variable_set(:@config, original_config)
+  end
+
+  def test_role_mentioned_detects_role_id_from_content
+    original_config = Brainiac::Plugins::Discord::Config.current.dup
+    new_config = original_config.merge("role_mappings" => { "Galen" => "111222333" })
+    Brainiac::Plugins::Discord::Config.instance_variable_set(:@config, new_config)
+
+    message = { "mention_roles" => [] }
+    result = Brainiac::Plugins::Discord::Message.send(:role_mentioned?, message, "Hey <@&111222333> fix this", "galen")
+    assert result, "Should detect role mention from content pattern"
+  ensure
+    Brainiac::Plugins::Discord::Config.instance_variable_set(:@config, original_config)
+  end
+
+  def test_role_mentioned_returns_false_without_role_config
+    message = { "mention_roles" => ["111222333"] }
+    result = Brainiac::Plugins::Discord::Message.send(:role_mentioned?, message, "test", "galen")
+    refute result, "Should return false when agent has no role_id configured"
+  end
 end
