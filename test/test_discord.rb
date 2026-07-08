@@ -362,4 +362,34 @@ class TestOtherAgentMentioned < Minitest::Test
   ensure
     Brainiac::Plugins::Discord::Config.instance_variable_set(:@config, original_config)
   end
+
+  def test_other_agent_named_in_text_detects_plain_text_name
+    content = "Effie, tell me another joke"
+    result = Brainiac::Plugins::Discord::Message.send(:other_agent_named_in_text?, content, "galen")
+    assert result, "Galen should detect Effie's name in plain text"
+  end
+
+  def test_other_agent_named_in_text_case_insensitive
+    content = "what does effie think about this?"
+    result = Brainiac::Plugins::Discord::Message.send(:other_agent_named_in_text?, content, "galen")
+    assert result, "Should detect lowercase agent name"
+  end
+
+  def test_other_agent_named_in_text_ignores_own_name
+    content = "Galen, what do you think?"
+    result = Brainiac::Plugins::Discord::Message.send(:other_agent_named_in_text?, content, "galen")
+    refute result, "Should not detect own name as 'other agent'"
+  end
+
+  def test_other_agent_named_in_text_no_agent_names
+    content = "What's the weather like today?"
+    result = Brainiac::Plugins::Discord::Message.send(:other_agent_named_in_text?, content, "galen")
+    refute result, "Should return false when no agent names appear"
+  end
+
+  def test_other_agent_named_in_text_requires_word_boundary
+    content = "The efficiency of this code is great"
+    result = Brainiac::Plugins::Discord::Message.send(:other_agent_named_in_text?, content, "galen")
+    refute result, "Should not match partial word (efficiency != Effie)"
+  end
 end

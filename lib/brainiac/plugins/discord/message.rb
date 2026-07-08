@@ -67,6 +67,13 @@ module Brainiac
             tags = parse_inline_tags(clean_content)
             project_key, project_config = resolve_project(tags[:project], parent_channel_id, agent_name, channel_id, message_id, bot_token)
 
+            # Thread owners and participants are eligible to respond but should still go
+            # through intent checking. Only explicit @mentions, replies-to-bot, and DMs
+            # bypass intent. This prevents the thread owner from auto-responding when the
+            # user is clearly addressing someone else (e.g., "Effie, tell me a joke" or
+            # a follow-up question intended for the last responder).
+            directly = mentioned || is_reply_to_bot || is_dm
+
             route_dispatch(
               agent_key: agent_key, agent_name: agent_name, bot_token: bot_token, is_bot: is_bot,
               channel_id: channel_id, message_id: message_id, message: message,
@@ -76,7 +83,7 @@ module Brainiac
               discord_user: discord_user, reply_context: reply_context,
               channel_history: channel_history, project_key: project_key,
               project_config: project_config, attachment_paths: attachment_paths,
-              directly_addressed: mentioned || is_reply_to_bot || in_own_thread || is_dm
+              directly_addressed: directly
             )
           end
 
@@ -111,6 +118,20 @@ module Brainiac
             end
 
             mention_roles.any? { |rid| content.match?(/<@&#{Regexp.escape(rid)}>/) }
+          end
+
+          # Check if another agent's name appears as plain text in the message content.
+          # This is a softer check than other_agent_mentioned? — it catches cases like
+          # "Effie, tell me a joke" where the user doesn't use @mention syntax.
+          # Used by thread owners to decide whether to defer to intent checking.
+          def other_agent_named_in_text?(content, agent_key)
+            Gateway.each_bot do |key, _info|
+              next if key == agent_key
+
+              display_name = agent_display_name(key) || key.capitalize
+              return true if content.match?(/\b#{Regexp.escape(display_name)}\b/i)
+            end
+            false
           end
 
           def validate_cross_agent_dispatch(sender_agent_key, agent_key, mentioned, content, channel_id)
