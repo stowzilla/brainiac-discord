@@ -345,7 +345,8 @@ module Brainiac
             handle_supersede(is_bot, supersede_key, discord_user, agent_name, bot_token)
 
             unless directly_addressed
-              if intent_skip?(clean_content, agent_name: agent_name, source: :discord, channel: "Discord #{is_thread ? "thread" : "channel"}")
+              if intent_skip?(clean_content, agent_name: agent_name, source: :discord,
+                              channel: "Discord #{is_thread ? "thread" : "channel"}", context: channel_history)
                 LOG.info "[Discord:#{agent_name}] Intent skip — not dispatching for: #{clean_content[0..80]}" if defined?(LOG)
                 return
               end
