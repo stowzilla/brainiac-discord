@@ -269,6 +269,45 @@ module Brainiac
       def self.completions
         %w[setup config default map owner token status]
       end
+
+      # Called by brainiac CLI after `agent create` — prompts for Discord user ID.
+      def self.on_agent_created(agent_key, entry)
+        return unless $stdin.tty?
+
+        display_name = entry["display_name"] || agent_key.capitalize
+        puts ""
+        puts "  [Discord] Configure Discord for #{display_name}?"
+        print "  Discord user ID (or blank to skip): "
+        user_id = $stdin.gets&.chomp
+        return if user_id.nil? || user_id.empty?
+
+        config_file = File.join(ENV.fetch("BRAINIAC_DIR", File.join(Dir.home, ".brainiac")), "discord.json")
+        config = File.exist?(config_file) ? JSON.parse(File.read(config_file)) : {}
+        config["user_mappings"] ||= {}
+        config["user_mappings"][display_name] = user_id
+        File.write(config_file, JSON.pretty_generate(config))
+        puts "  ✓ Added #{display_name} → #{user_id} to discord.json user_mappings"
+      rescue JSON::ParserError => e
+        puts "  ⚠ Could not update discord.json: #{e.message}"
+      end
+
+      # Called by brainiac CLI after `agent remove` — removes from Discord user_mappings.
+      def self.on_agent_removed(agent_key, display_name)
+        config_file = File.join(ENV.fetch("BRAINIAC_DIR", File.join(Dir.home, ".brainiac")), "discord.json")
+        return unless File.exist?(config_file)
+
+        config = JSON.parse(File.read(config_file))
+        mappings = config["user_mappings"]
+        return unless mappings
+
+        removed = mappings.delete(display_name) || mappings.delete(agent_key)
+        return unless removed
+
+        File.write(config_file, JSON.pretty_generate(config))
+        puts "  [Discord] Removed #{display_name} from discord.json user_mappings"
+      rescue JSON::ParserError
+        nil
+      end
     end
   end
 end

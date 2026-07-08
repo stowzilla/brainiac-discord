@@ -148,6 +148,36 @@ class TestDiscordGateway < Minitest::Test
     result = Brainiac::Plugins::Discord::Gateway.detect_sender_agent(author, "galen")
     assert_equal "andy", result
   end
+
+  def test_start_bot_adds_to_bots_hash
+    Brainiac::Plugins::Discord::Gateway.start_bot!("testbot", "Bot_test123")
+    status = Brainiac::Plugins::Discord::Gateway.bots_status
+    assert status.key?("testbot")
+    assert_equal "starting", status["testbot"][:status]
+  ensure
+    Brainiac::Plugins::Discord::Gateway.stop_bot!("testbot")
+  end
+
+  def test_start_bot_noop_if_already_running
+    Brainiac::Plugins::Discord::Gateway.start_bot!("testbot2", "Bot_test456")
+    Brainiac::Plugins::Discord::Gateway.start_bot!("testbot2", "Bot_different")
+    status = Brainiac::Plugins::Discord::Gateway.bots_status
+    assert status.key?("testbot2")
+  ensure
+    Brainiac::Plugins::Discord::Gateway.stop_bot!("testbot2")
+  end
+
+  def test_stop_bot_removes_from_bots_hash
+    Brainiac::Plugins::Discord::Gateway.start_bot!("testbot3", "Bot_test789")
+    Brainiac::Plugins::Discord::Gateway.stop_bot!("testbot3")
+    status = Brainiac::Plugins::Discord::Gateway.bots_status
+    refute status.key?("testbot3")
+  end
+
+  def test_stop_bot_noop_for_unknown_agent
+    Brainiac::Plugins::Discord::Gateway.stop_bot!("nonexistent-agent")
+    # Should not raise
+  end
 end
 
 class TestDiscordApi < Minitest::Test
