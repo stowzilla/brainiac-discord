@@ -75,6 +75,18 @@ module Brainiac
             end.map(&:to_s)
           end
 
+          # Find the Discord role ID for a given agent key.
+          # Checks role_mappings and authorized_role_ids (when Hash) by agent display name.
+          # Returns the role ID string, or nil if not found.
+          def role_id_for_agent(agent_key)
+            roles = @config["role_mappings"] || (@config["authorized_role_ids"].is_a?(Hash) ? @config["authorized_role_ids"] : nil)
+            return nil unless roles
+
+            # Try capitalized key first (e.g., "galen" → "Galen"), then display name from registry
+            agent_name = agent_display_name(agent_key) || agent_key.capitalize
+            roles[agent_name]&.to_s
+          end
+
           def authorized_user_ids
             @config["authorized_user_ids"] || []
           end
