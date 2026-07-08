@@ -309,12 +309,9 @@ class TestDiscordMessage < Minitest::Test
   end
 
   def test_solo_in_thread_returns_true_when_no_other_bots_posted
-    history = [
-      { "author" => { "id" => "111", "bot" => nil }, "content" => "hello" },
-      { "author" => { "id" => "222" }, "content" => "galen response" }
-    ]
+    history = "Andy: hello\nGalen: galen response"
 
-    bots = { "galen" => { user_id: "222" }, "effie" => { user_id: "333" } }
+    bots = { "galen" => { user_id: "222", username: "Galen" }, "effie" => { user_id: "333", username: "Effie" } }
     original_bots = Brainiac::Plugins::Discord::Gateway.instance_variable_get(:@bots)
     Brainiac::Plugins::Discord::Gateway.instance_variable_set(:@bots, bots)
     result = Brainiac::Plugins::Discord::Message.send(:solo_in_thread?, history, "galen")
@@ -324,13 +321,9 @@ class TestDiscordMessage < Minitest::Test
   end
 
   def test_solo_in_thread_returns_false_when_other_bot_posted
-    history = [
-      { "author" => { "id" => "111", "bot" => nil }, "content" => "hello" },
-      { "author" => { "id" => "222" }, "content" => "galen response" },
-      { "author" => { "id" => "333" }, "content" => "effie response" }
-    ]
+    history = "Andy: hello\nGalen: galen response\nEffie: effie response"
 
-    bots = { "galen" => { user_id: "222" }, "effie" => { user_id: "333" } }
+    bots = { "galen" => { user_id: "222", username: "Galen" }, "effie" => { user_id: "333", username: "Effie" } }
     original_bots = Brainiac::Plugins::Discord::Gateway.instance_variable_get(:@bots)
     Brainiac::Plugins::Discord::Gateway.instance_variable_set(:@bots, bots)
     result = Brainiac::Plugins::Discord::Message.send(:solo_in_thread?, history, "galen")
@@ -340,7 +333,7 @@ class TestDiscordMessage < Minitest::Test
   end
 
   def test_solo_in_thread_returns_true_with_empty_history
-    result = Brainiac::Plugins::Discord::Message.send(:solo_in_thread?, [], "galen")
+    result = Brainiac::Plugins::Discord::Message.send(:solo_in_thread?, "", "galen")
     assert result, "Should return true with empty history (assume solo)"
   end
 

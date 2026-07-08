@@ -226,23 +226,39 @@ module Brainiac
 
           # Check if this agent is the only bot in the thread (1-on-1 with the human).
           # Uses the already-fetched channel_history to avoid extra API calls.
+          # channel_history is a formatted string ("Username: message\n...") from fetch_channel_history.
           # Returns true when no other agent bots have posted in the thread history,
           # meaning it's safe to skip intent checking (the message is obviously for us).
           def solo_in_thread?(channel_history, agent_key)
-            return true unless channel_history.is_a?(Array) && channel_history.any?
+            return true unless channel_history.is_a?(String) && !channel_history.empty?
 
-            other_bot_ids = []
+            other_bot_usernames = []
             Gateway.each_bot do |key, info|
               next if key == agent_key
-              next unless info[:user_id]
+              next unless info[:username]
 
-              other_bot_ids << info[:user_id].to_s
+              other_bot_usernames << info[:username]
             end
-            return true if other_bot_ids.empty?
 
-            channel_history.none? do |msg|
-              author_id = msg.dig("author", "id").to_s
-              other_bot_ids.include?(author_id)
+            # Also check user_mappings for remote agent bots not connected locally
+            agent_keys = []
+            Gateway.each_bot { |key, _| agent_keys << key }
+            Config.user_mappings.each do |name, _discord_id|
+              normalized = name.downcase.gsub(/[^a-z0-9]/, "-")
+              next if normalized == agent_key
+              next if agent_keys.include?(normalized)
+
+              # Only include names that look like agent bots (present in agent registry)
+              next unless defined?(AGENT_REGISTRY) && AGENT_REGISTRY.key?(normalized)
+
+              other_bot_usernames << name
+            end
+
+            return true if other_bot_usernames.empty?
+
+            history_lines = channel_history.split("\n")
+            history_lines.none? do |line|
+              other_bot_usernames.any? { |username| line.start_with?("#{username}: ") }
             end
           end
 
