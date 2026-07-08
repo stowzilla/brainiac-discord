@@ -303,6 +303,7 @@ module Brainiac
           def mark_bot_ready(agent_key, agent_display, bot_user_id, data)
             @bots_mutex.synchronize do
               @bots[agent_key][:user_id] = bot_user_id
+              @bots[agent_key][:username] = data.dig("user", "username")
               @bots[agent_key][:status] = "ready"
             end
             guild_count = data["guilds"]&.size || 0
