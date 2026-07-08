@@ -307,6 +307,47 @@ class TestDiscordMessage < Minitest::Test
     result = Brainiac::Plugins::Discord::Message.send(:role_mentioned?, message, "test", "galen")
     refute result, "Should return false when agent has no role_id configured"
   end
+
+  def test_solo_in_thread_returns_true_when_no_other_bots_posted
+    history = [
+      { "author" => { "id" => "111", "bot" => nil }, "content" => "hello" },
+      { "author" => { "id" => "222" }, "content" => "galen response" }
+    ]
+
+    bots = { "galen" => { user_id: "222" }, "effie" => { user_id: "333" } }
+    original_bots = Brainiac::Plugins::Discord::Gateway.instance_variable_get(:@bots)
+    Brainiac::Plugins::Discord::Gateway.instance_variable_set(:@bots, bots)
+    result = Brainiac::Plugins::Discord::Message.send(:solo_in_thread?, history, "galen")
+    assert result, "Should return true when only this bot posted (no other agents in thread)"
+  ensure
+    Brainiac::Plugins::Discord::Gateway.instance_variable_set(:@bots, original_bots)
+  end
+
+  def test_solo_in_thread_returns_false_when_other_bot_posted
+    history = [
+      { "author" => { "id" => "111", "bot" => nil }, "content" => "hello" },
+      { "author" => { "id" => "222" }, "content" => "galen response" },
+      { "author" => { "id" => "333" }, "content" => "effie response" }
+    ]
+
+    bots = { "galen" => { user_id: "222" }, "effie" => { user_id: "333" } }
+    original_bots = Brainiac::Plugins::Discord::Gateway.instance_variable_get(:@bots)
+    Brainiac::Plugins::Discord::Gateway.instance_variable_set(:@bots, bots)
+    result = Brainiac::Plugins::Discord::Message.send(:solo_in_thread?, history, "galen")
+    refute result, "Should return false when another agent bot posted in thread"
+  ensure
+    Brainiac::Plugins::Discord::Gateway.instance_variable_set(:@bots, original_bots)
+  end
+
+  def test_solo_in_thread_returns_true_with_empty_history
+    result = Brainiac::Plugins::Discord::Message.send(:solo_in_thread?, [], "galen")
+    assert result, "Should return true with empty history (assume solo)"
+  end
+
+  def test_solo_in_thread_returns_true_with_nil_history
+    result = Brainiac::Plugins::Discord::Message.send(:solo_in_thread?, nil, "galen")
+    assert result, "Should return true with nil history (assume solo)"
+  end
 end
 
 class TestOtherAgentMentioned < Minitest::Test
