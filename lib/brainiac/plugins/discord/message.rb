@@ -101,9 +101,9 @@ module Brainiac
               content.match?(/<@&#{Regexp.escape(role_id)}>/)
           end
 
-          # Check if another agent bot is explicitly mentioned in this message.
-          # When a user @mentions a specific agent, thread participants who weren't
-          # mentioned should stay silent — no intent check needed.
+          # Check if another agent bot or a known human user is explicitly mentioned
+          # in this message. When a user @mentions someone specific, thread participants
+          # who weren't mentioned should stay silent — no intent check needed.
           def other_agent_mentioned?(mentions, content, agent_key)
             mention_roles = []
 
@@ -118,7 +118,18 @@ module Brainiac
               mention_roles << role_id if role_id
             end
 
-            mention_roles.any? { |rid| content.match?(/<@&#{Regexp.escape(rid)}>/) }
+            return true if mention_roles.any? { |rid| content.match?(/<@&#{Regexp.escape(rid)}>/) }
+
+            # Also check human user_mappings — if a human was explicitly @mentioned,
+            # thread participants should stand down (message directed at someone specific)
+            Config.user_mappings.each_value do |discord_id|
+              next unless discord_id
+
+              return true if mentions.any? { |m| m["id"].to_s == discord_id.to_s } ||
+                             content.match?(/<@!?#{Regexp.escape(discord_id.to_s)}>/)
+            end
+
+            false
           end
 
           def validate_cross_agent_dispatch(sender_agent_key, agent_key, mentioned, content, channel_id)
