@@ -396,4 +396,43 @@ class TestOtherAgentMentioned < Minitest::Test
   ensure
     Brainiac::Plugins::Discord::Config.instance_variable_set(:@config, original_config)
   end
+
+  def test_returns_true_when_human_user_mentioned_in_mentions_array
+    original_config = Brainiac::Plugins::Discord::Config.current.dup
+    new_config = original_config.merge("user_mappings" => { "Andy" => "397928984232591361" })
+    Brainiac::Plugins::Discord::Config.instance_variable_set(:@config, new_config)
+
+    mentions = [{ "id" => "397928984232591361" }]
+    content = "<@397928984232591361> hey what do you think?"
+    result = Brainiac::Plugins::Discord::Message.send(:other_agent_mentioned?, mentions, content, "effie")
+    assert result, "Effie should detect that a mapped human user (Andy) is mentioned"
+  ensure
+    Brainiac::Plugins::Discord::Config.instance_variable_set(:@config, original_config)
+  end
+
+  def test_returns_true_when_human_user_mentioned_in_content_only
+    original_config = Brainiac::Plugins::Discord::Config.current.dup
+    new_config = original_config.merge("user_mappings" => { "Adam" => "832331260088287242" })
+    Brainiac::Plugins::Discord::Config.instance_variable_set(:@config, new_config)
+
+    mentions = []
+    content = "<@832331260088287242> Ughhhh, they said skip but Effie activated anyway?!"
+    result = Brainiac::Plugins::Discord::Message.send(:other_agent_mentioned?, mentions, content, "effie")
+    assert result, "Effie should detect Adam's mention in content and stand down"
+  ensure
+    Brainiac::Plugins::Discord::Config.instance_variable_set(:@config, original_config)
+  end
+
+  def test_returns_false_when_unmapped_user_mentioned
+    original_config = Brainiac::Plugins::Discord::Config.current.dup
+    new_config = original_config.merge("user_mappings" => { "Andy" => "397928984232591361" })
+    Brainiac::Plugins::Discord::Config.instance_variable_set(:@config, new_config)
+
+    mentions = [{ "id" => "999999999999999999" }]
+    content = "<@999999999999999999> hey unmapped person"
+    result = Brainiac::Plugins::Discord::Message.send(:other_agent_mentioned?, mentions, content, "effie")
+    refute result, "Should not stand down for unmapped user mentions"
+  ensure
+    Brainiac::Plugins::Discord::Config.instance_variable_set(:@config, original_config)
+  end
 end
