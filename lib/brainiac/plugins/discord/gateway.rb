@@ -295,6 +295,26 @@ module Brainiac
               rescue StandardError => e
                 LOG.error "[Discord:#{agent_display}] Error handling reaction: #{e.message}\n#{e.backtrace.first(3).join("\n")}" if defined?(LOG)
               end
+            when "THREAD_UPDATE"
+              if data.dig("thread_metadata", "archived")
+                Thread.new do
+                  ThreadCleanup.handle_archive(data, agent_key, agent_display)
+                rescue StandardError => e
+                  if defined?(LOG)
+                    LOG.error "[Discord:#{agent_display}] Error handling thread archive: " \
+                              "#{e.message}\n#{e.backtrace.first(3).join("\n")}"
+                  end
+                end
+              end
+            when "THREAD_DELETE"
+              Thread.new do
+                ThreadCleanup.handle_archive(data, agent_key, agent_display)
+              rescue StandardError => e
+                if defined?(LOG)
+                  LOG.error "[Discord:#{agent_display}] Error handling thread delete: " \
+                            "#{e.message}\n#{e.backtrace.first(3).join("\n")}"
+                end
+              end
             end
 
             bot_user_id

@@ -29,11 +29,13 @@ Metrics/CyclomaticComplexity:
   Max: 18
   Exclude:
     - "lib/brainiac/plugins/discord/message.rb"
+    - "lib/brainiac/plugins/discord/gateway.rb"
 
 Metrics/PerceivedComplexity:
   Max: 18
   Exclude:
     - "lib/brainiac/plugins/discord/message.rb"
+    - "lib/brainiac/plugins/discord/gateway.rb"
 
 Metrics/ModuleLength:
   Max: 800

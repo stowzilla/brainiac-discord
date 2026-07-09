@@ -9,6 +9,7 @@ require_relative "discord/api"
 require_relative "discord/delivery"
 require_relative "discord/reactions"
 require_relative "discord/message"
+require_relative "discord/thread_cleanup"
 require_relative "discord/gateway"
 
 module Brainiac
