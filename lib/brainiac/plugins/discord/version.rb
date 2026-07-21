@@ -3,7 +3,7 @@
 module Brainiac
   module Plugins
     module Discord
-      VERSION = "0.0.6"
+      VERSION = "0.0.7"
     end
   end
 end

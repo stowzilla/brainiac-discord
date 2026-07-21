@@ -116,6 +116,92 @@ class TestDiscordConfig < Minitest::Test
   end
 end
 
+class TestDiscordPersistOverrides < Minitest::Test
+  def setup
+    @thread_map_file = Brainiac::Plugins::Discord::Config::DISCORD_THREAD_MAP_FILE
+    FileUtils.rm_f(@thread_map_file)
+    # Override detect_cli_provider to actually parse [cli:X] tags for these tests
+    @original_detect_cli = method(:detect_cli_provider)
+  end
+
+  def teardown
+    FileUtils.rm_f(@thread_map_file)
+  end
+
+  def test_persist_overrides_updates_thread_map_cli_provider
+    map = { "galen:thread123" => { "worktree" => "/tmp/wt", "cli_provider" => "grok", "model" => nil, "effort" => nil } }
+    Brainiac::Plugins::Discord::Config.save_thread_map(map)
+
+    # Temporarily make detect_cli_provider work for real
+    Object.define_method(:detect_cli_provider) { |text: "", tags: []| (m = text.match(/\[cli:(\w+)\]/i)) ? m[1].downcase : nil }
+
+    Brainiac::Plugins::Discord::Message.send(
+      :persist_overrides, "galen:thread123", "[cli:kiro] hello", nil,
+      cli_provider: "kiro", model: nil, effort: nil,
+      prev_cli_provider: "grok", prev_model: nil, prev_effort: nil
+    )
+
+    updated = Brainiac::Plugins::Discord::Config.load_thread_map
+    assert_equal "kiro", updated["galen:thread123"]["cli_provider"]
+  ensure
+    Object.define_method(:detect_cli_provider) { |text: "", tags: []| nil }
+  end
+
+  def test_persist_overrides_updates_thread_map_model
+    map = { "galen:thread456" => { "worktree" => "/tmp/wt", "cli_provider" => nil, "model" => nil, "effort" => nil } }
+    Brainiac::Plugins::Discord::Config.save_thread_map(map)
+
+    project_config = { "allowed_models" => { "opus" => "claude-opus-4.6" } }
+
+    Brainiac::Plugins::Discord::Message.send(
+      :persist_overrides, "galen:thread456", "[opus] do something", project_config,
+      cli_provider: nil, model: "claude-opus-4.6", effort: nil,
+      prev_cli_provider: nil, prev_model: nil, prev_effort: nil
+    )
+
+    updated = Brainiac::Plugins::Discord::Config.load_thread_map
+    assert_equal "claude-opus-4.6", updated["galen:thread456"]["model"]
+  end
+
+  def test_persist_overrides_noop_when_no_inline_tags
+    map = { "galen:thread789" => { "worktree" => "/tmp/wt", "cli_provider" => "grok", "model" => nil, "effort" => nil } }
+    Brainiac::Plugins::Discord::Config.save_thread_map(map)
+
+    Brainiac::Plugins::Discord::Message.send(
+      :persist_overrides, "galen:thread789", "just a normal message", nil,
+      cli_provider: "grok", model: nil, effort: nil,
+      prev_cli_provider: "grok", prev_model: nil, prev_effort: nil
+    )
+
+    updated = Brainiac::Plugins::Discord::Config.load_thread_map
+    assert_equal "grok", updated["galen:thread789"]["cli_provider"]
+  end
+
+  def test_persist_overrides_noop_when_no_thread_map_key
+    Brainiac::Plugins::Discord::Message.send(
+      :persist_overrides, nil, "[cli:kiro] hello", nil,
+      cli_provider: "kiro", model: nil, effort: nil,
+      prev_cli_provider: "grok", prev_model: nil, prev_effort: nil
+    )
+
+    refute File.exist?(@thread_map_file)
+  end
+
+  def test_persist_overrides_updates_effort
+    map = { "galen:threadE" => { "worktree" => "/tmp/wt", "cli_provider" => nil, "model" => nil, "effort" => nil } }
+    Brainiac::Plugins::Discord::Config.save_thread_map(map)
+
+    Brainiac::Plugins::Discord::Message.send(
+      :persist_overrides, "galen:threadE", "[effort:high] build this", nil,
+      cli_provider: nil, model: nil, effort: "high",
+      prev_cli_provider: nil, prev_model: nil, prev_effort: nil
+    )
+
+    updated = Brainiac::Plugins::Discord::Config.load_thread_map
+    assert_equal "high", updated["galen:threadE"]["effort"]
+  end
+end
+
 class TestDiscordGateway < Minitest::Test
   def test_discord_bot_tokens_collected
     tokens = Brainiac::Plugins::Discord::Gateway.discord_bot_tokens

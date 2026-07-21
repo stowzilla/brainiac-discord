@@ -117,6 +117,11 @@ def parse_inline_tags(text) = { project: nil, clean_text: text, chat_mode: false
 def detect_cli_provider(text: "", tags: []) = nil
 def detect_model(_config, text: "") = nil
 def detect_effort(_config, text: "") = nil
+
+def resolve_work_item_overrides(work_item_id: nil, branch: nil, inline_cli_provider: nil, inline_model: nil, inline_effort: nil)
+  { cli_provider: inline_cli_provider, model: inline_model, effort: inline_effort }
+end
+
 def resolve_project_cli_config(config, cli_provider_override: nil, agent_name: nil) = DEFAULT_PROJECT.merge(config || {})
 def build_brain_context(agent_name:, card_title:, comment_body:) = ""
 def render_prompt(_template, _vars, brain_context: "", agent_name: nil, channel: :discord) = "rendered prompt"

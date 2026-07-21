@@ -10,8 +10,8 @@ module Brainiac
       #
       # Handles incoming messages: authorization, cross-agent routing, project detection,
       # worktree management, prompt building, agent spawning, and response monitoring.
-      module Message
-        class << self
+      module Message # rubocop:disable Metrics/ModuleLength
+        class << self # rubocop:disable Metrics/ClassLength
           def handle(message, agent_key, bot_token, bot_user_id)
             channel_id = message["channel_id"]
             message_id = message["id"]
@@ -498,7 +498,7 @@ module Brainiac
             thread_root_context = build_thread_root_context(is_thread, root_message, parent_channel_id, channel_id, bot_token)
             brain_context = build_brain_context(agent_name: agent_name, card_title: clean_content, comment_body: clean_content)
 
-            should_resume, thread_worktree_path, thread_cli_provider, thread_model, thread_effort = manage_worktree(
+            should_resume, thread_worktree_path, thread_cli_provider, thread_model, thread_effort, thread_map_key = manage_worktree(
               agent_key: agent_key, agent_name: agent_name, channel_id: channel_id, message_id: message_id,
               is_thread: is_thread, is_dm: is_dm, project_config: project_config, clean_content: clean_content,
               chat_mode: chat_mode, bot_token: bot_token
@@ -521,6 +521,10 @@ module Brainiac
             model, effort, cli_provider_override = resolve_overrides(
               clean_content, project_config, thread_model, thread_effort, thread_cli_provider
             )
+
+            persist_overrides(thread_map_key, clean_content, project_config,
+                              cli_provider: cli_provider_override, model: model, effort: effort,
+                              prev_cli_provider: thread_cli_provider, prev_model: thread_model, prev_effort: thread_effort)
 
             meta_file = File.join(Delivery::DRAFT_DIR, "#{response_basename}.meta.json")
             write_meta(meta_file,
@@ -593,6 +597,55 @@ module Brainiac
             [model, effort, cli_provider]
           end
 
+          # Persist inline overrides to the thread map (and work item map if a work item exists).
+          # Only writes when a new inline tag was detected (differs from previously stored values).
+          def persist_overrides(thread_map_key, clean_content, project_config,
+                                cli_provider:, model:, effort:,
+                                prev_cli_provider:, prev_model:, prev_effort:)
+            return unless thread_map_key
+
+            inline_cli = detect_cli_provider(text: clean_content)
+            inline_model = explicit_model_tag?(clean_content, project_config) ? model : nil
+            inline_effort = clean_content.match?(/\[effort:\w+\]/i) ? effort : nil
+
+            return unless inline_cli || inline_model || inline_effort
+
+            changed = (inline_cli && inline_cli != prev_cli_provider) ||
+                      (inline_model && inline_model != prev_model) ||
+                      (inline_effort && inline_effort != prev_effort)
+            return unless changed
+
+            # Update thread map entry with new overrides
+            Config.thread_map_mutex.synchronize do
+              map = Config.load_thread_map
+              entry = map[thread_map_key]
+              if entry
+                entry["cli_provider"] = cli_provider if inline_cli
+                entry["model"] = model if inline_model
+                entry["effort"] = effort if inline_effort
+                Config.save_thread_map(map)
+              end
+            end
+
+            # Also persist to core work item map (if a work item exists for this branch)
+            branch = Config.thread_map_mutex.synchronize do
+              Config.load_thread_map.dig(thread_map_key, "branch")
+            end
+            if branch && defined?(resolve_work_item_overrides)
+              resolve_work_item_overrides(
+                branch: branch,
+                inline_cli_provider: inline_cli,
+                inline_model: inline_model,
+                inline_effort: inline_effort
+              )
+            end
+
+            return unless defined?(LOG)
+
+            LOG.info "[Discord] Persisted overrides for #{thread_map_key}: " \
+                     "cli=#{cli_provider}, model=#{model}, effort=#{effort}"
+          end
+
           def explicit_model_tag?(clean_content, project_config)
             return false unless project_config
 
@@ -662,7 +715,7 @@ module Brainiac
                 create_chat_mode_dir(agent_key, agent_name, effective_thread_id, project_config, clean_content, thread_map_key)
             end
 
-            [should_resume, thread_worktree_path, thread_cli_provider, thread_model, thread_effort]
+            [should_resume, thread_worktree_path, thread_cli_provider, thread_model, thread_effort, thread_map_key]
           end
 
           def pre_create_thread(agent_key, agent_name, channel_id, message_id, clean_content, bot_token)
