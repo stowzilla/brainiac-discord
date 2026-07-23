@@ -531,7 +531,7 @@ module Brainiac
                        channel_id: channel_id, message_id: message_id, agent_key: agent_key,
                        agent_name: agent_name, is_dm: is_dm, is_thread: is_thread,
                        clean_content: clean_content,
-                       explicit_model: explicit_model_tag?(clean_content, project_config) ? model : nil,
+                       explicit_model: explicit_model_tag?(clean_content, project_config, cli_provider_override: cli_provider_override) ? model : nil,
                        explicit_effort: clean_content.match?(/\[effort:\w+\]/i) ? effort : nil)
 
             spawn_agent(
@@ -575,23 +575,23 @@ module Brainiac
 
           def resolve_overrides(clean_content, project_config, thread_model, thread_effort, thread_cli_provider)
             cli_provider = detect_cli_provider(text: clean_content) || thread_cli_provider
-            has_explicit_model = explicit_model_tag?(clean_content, project_config)
+            has_explicit_model = explicit_model_tag?(clean_content, project_config, cli_provider_override: cli_provider)
             has_explicit_effort = clean_content.match?(/\[effort:\w+\]/i)
 
             model = if has_explicit_model
-                      detect_model(project_config, text: clean_content)
+                      detect_model(project_config, text: clean_content, cli_provider_override: cli_provider)
                     elsif thread_model
                       thread_model
                     else
-                      project_config ? detect_model(project_config, text: clean_content) : nil
+                      project_config ? detect_model(project_config, text: clean_content, cli_provider_override: cli_provider) : nil
                     end
 
             effort = if has_explicit_effort
-                       detect_effort(project_config, text: clean_content)
+                       detect_effort(project_config, text: clean_content, cli_provider_override: cli_provider)
                      elsif thread_effort
                        thread_effort
                      else
-                       project_config ? detect_effort(project_config, text: clean_content) : nil
+                       project_config ? detect_effort(project_config, text: clean_content, cli_provider_override: cli_provider) : nil
                      end
 
             [model, effort, cli_provider]
@@ -605,7 +605,7 @@ module Brainiac
             return unless thread_map_key
 
             inline_cli = detect_cli_provider(text: clean_content)
-            inline_model = explicit_model_tag?(clean_content, project_config) ? model : nil
+            inline_model = explicit_model_tag?(clean_content, project_config, cli_provider_override: cli_provider) ? model : nil
             inline_effort = clean_content.match?(/\[effort:\w+\]/i) ? effort : nil
 
             return unless inline_cli || inline_model || inline_effort
@@ -646,10 +646,10 @@ module Brainiac
                      "cli=#{cli_provider}, model=#{model}, effort=#{effort}"
           end
 
-          def explicit_model_tag?(clean_content, project_config)
+          def explicit_model_tag?(clean_content, project_config, cli_provider_override: nil)
             return false unless project_config
 
-            allowed_models = resolve_project_cli_config(project_config)["allowed_models"] || {}
+            allowed_models = resolve_project_cli_config(project_config, cli_provider_override: cli_provider_override)["allowed_models"] || {}
             model_tag_match = clean_content.match(/\[(\w+)\]/i)
             model_tag_match && allowed_models.key?(model_tag_match[1].downcase)
           end
