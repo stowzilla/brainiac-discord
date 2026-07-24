@@ -927,6 +927,13 @@ module Brainiac
             LOG.info "[Discord:#{agent_name}] Agent finished for message #{message_id} (exit: #{exit_status.exitstatus})" if defined?(LOG)
 
             if exit_status.exitstatus && exit_status.exitstatus != 0 && !File.exist?(response_file)
+              if transient_cli_error?(log_file)
+                LOG.warn "[Discord:#{agent_name}] Transient CLI error for message #{message_id} — reacting instead of crash notify" if defined?(LOG)
+                Api.remove_reaction(channel_id, message_id, "👀", token: bot_token)
+                Api.add_reaction(channel_id, message_id, "⚡", token: bot_token)
+                return
+              end
+
               notify_agent_crash(
                 exit_status: exit_status.exitstatus, log_file: log_file,
                 agent_name: agent_name, source: :discord,
@@ -1012,6 +1019,30 @@ module Brainiac
                 LOG.info "[Discord:#{agent_name}] Extracted response from log (#{clean_output.length} chars)" if defined?(LOG)
               end
             end
+          end
+
+          # Detect transient CLI errors that don't warrant a full crash notification.
+          # These are random upstream failures (model timeouts, tool approval glitches)
+          # that resolve on retry — reacting with an emoji is sufficient.
+          TRANSIENT_CLI_ERROR_PATTERN = /
+            Failed\sto\sreceive\sthe\snext\smessage|
+            Kiro\sfailed\sto\sgenerate\sa\sresponse|
+            Tool\sapproval\srequired\sbut\s--no-interactive|
+            Kiro\sis\shaving\strouble\sresponding
+          /ix
+
+          def transient_cli_error?(log_file)
+            return false unless log_file && File.exist?(log_file)
+
+            # Read last 4KB to avoid loading huge logs — transient errors appear at the end
+            File.open(log_file, "rb") do |f|
+              size = f.size
+              f.seek([size - 4096, 0].max)
+              tail = f.read
+              tail.match?(TRANSIENT_CLI_ERROR_PATTERN)
+            end
+          rescue StandardError
+            false
           end
 
           def log_post_task_crash_diagnostics(log_file, agent_name)
