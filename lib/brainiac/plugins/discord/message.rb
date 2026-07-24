@@ -510,6 +510,18 @@ module Brainiac
               LOG.info "[Discord:#{agent_name}] [fresh] tag — forcing new session instead of resuming" if defined?(LOG)
             end
 
+            # [fresh] memory refresh: before starting the new session, spawn a quick agent
+            # to review the full thread history and update memory
+            if fresh && is_thread
+              refresh_memory_from_thread(
+                agent_key: agent_key, agent_name: agent_name, bot_token: bot_token,
+                channel_id: channel_id, message_id: message_id, card_id: card_id,
+                project_config: project_config, cli_provider_override: thread_cli_provider,
+                work_dir: thread_worktree_path || (project_config ? project_config["repo_path"] : Dir.pwd),
+                timestamp: timestamp, response_dir: response_dir
+              )
+            end
+
             prompt = build_prompt(
               should_resume: should_resume, thread_worktree_path: thread_worktree_path,
               clean_content_for_prompt: clean_content_for_prompt,
@@ -888,6 +900,136 @@ module Brainiac
 
             pk = PROJECTS.find { |_k, v| v == project_config }&.first
             pk == "brainiac" ? capture_git_state(work_dir) : [nil, nil]
+          end
+
+          # Fetch ALL messages in a thread (paginated), returning formatted lines.
+          def fetch_full_thread_history(channel_id, before_message_id, token:)
+            all_messages = []
+            cursor = before_message_id
+            limit = 100
+
+            loop do
+              url = "/channels/#{channel_id}/messages?before=#{cursor}&limit=#{limit}"
+              batch = Api.request(:get, url, token: token)
+              break unless batch.is_a?(Array) && batch.any?
+
+              all_messages.concat(batch)
+              break if batch.size < limit
+
+              cursor = batch.last["id"]
+            end
+
+            return "" if all_messages.empty?
+
+            lines = all_messages.reverse.filter_map do |msg|
+              author = msg.dig("author", "username") || "unknown"
+              content = msg["content"]&.strip || ""
+              next if content.empty?
+
+              "#{author}: #{content}"
+            end
+
+            lines.join("\n")
+          rescue StandardError => e
+            LOG.warn "[Discord] Failed to fetch full thread history: #{e.message}" if defined?(LOG)
+            ""
+          end
+
+          # Spawn a synchronous agent session to review full thread history and update memory.
+          # This runs BEFORE the main [fresh] dispatch so the new session gets up-to-date memory.
+          def refresh_memory_from_thread(agent_key:, agent_name:, bot_token:, channel_id:, message_id:,
+                                         card_id:, project_config:, cli_provider_override:, work_dir:,
+                                         timestamp:, response_dir:)
+            Api.add_reaction(channel_id, message_id, "📖", token: bot_token)
+            LOG.info "[Discord:#{agent_name}] [fresh] Refreshing memory from full thread history" if defined?(LOG)
+
+            full_history = fetch_full_thread_history(channel_id, message_id, token: bot_token)
+            if full_history.empty?
+              LOG.info "[Discord:#{agent_name}] [fresh] No thread history to review — skipping memory refresh" if defined?(LOG)
+              Api.remove_reaction(channel_id, message_id, "📖", token: bot_token)
+              Api.add_reaction(channel_id, message_id, "🔄", token: bot_token)
+              return
+            end
+
+            agent_config_name = agent_key.downcase.gsub(/[^a-z0-9-]/, "-")
+            memory_dir = memory_dir_for(agent_name)
+            memory_file = File.join(memory_dir, "card-#{card_id}.md")
+
+            prompt = build_memory_refresh_prompt(
+              agent_name: agent_name, memory_file: memory_file, full_history: full_history, card_id: card_id
+            )
+
+            prompt_file = File.join(response_dir, "discord-memory-refresh-#{timestamp}-#{agent_key}-#{message_id}.md")
+            File.write(prompt_file, prompt)
+
+            resolved = resolve_project_cli_config(project_config || DEFAULT_PROJECT,
+                                                  cli_provider_override: cli_provider_override, agent_name: agent_name)
+            # Use a fast model for memory refresh (sonnet or haiku) — we just need it to read and summarize
+            refresh_model = (resolved["allowed_models"] || {})["sonnet"] || "claude-sonnet-4.6"
+            cmd = build_agent_cmd(resolved, agent_config_name: agent_config_name, model: refresh_model,
+                                            effort: "low", prompt_file: prompt_file, resume: false)
+
+            log_file = File.join(response_dir, "discord-memory-refresh-#{timestamp}-#{agent_key}-#{message_id}.log")
+            spawn_env = agent_env_for(agent_name)
+            prompt_mode = resolved["prompt_mode"] || "stdin"
+
+            LOG.info "[Discord:#{agent_name}] [fresh] Spawning memory refresh (model: #{refresh_model}), log: #{log_file}" if defined?(LOG)
+
+            pid = spawn(spawn_env, *cmd,
+                        chdir: work_dir,
+                        **(prompt_mode == "stdin" ? { in: prompt_file } : {}),
+                        out: [log_file, "w"],
+                        err: %i[child out])
+
+            # Wait synchronously — the main dispatch doesn't start until memory is updated
+            Process.wait(pid)
+            exit_status = $CHILD_STATUS.exitstatus
+
+            if exit_status == 0
+              LOG.info "[Discord:#{agent_name}] [fresh] Memory refresh completed successfully" if defined?(LOG)
+            else
+              LOG.warn "[Discord:#{agent_name}] [fresh] Memory refresh failed (exit: #{exit_status}), proceeding anyway" if defined?(LOG)
+            end
+
+            Api.remove_reaction(channel_id, message_id, "📖", token: bot_token)
+            Api.add_reaction(channel_id, message_id, "🔄", token: bot_token)
+          rescue StandardError => e
+            LOG.error "[Discord:#{agent_name}] [fresh] Memory refresh error: #{e.message}" if defined?(LOG)
+            Api.remove_reaction(channel_id, message_id, "📖", token: bot_token)
+            Api.add_reaction(channel_id, message_id, "🔄", token: bot_token)
+          end
+
+          # Build the prompt for the memory-refresh agent. This agent reads the full thread
+          # and updates the memory file so the fresh session starts with accurate context.
+          def build_memory_refresh_prompt(agent_name:, memory_file:, full_history:, card_id:)
+            <<~PROMPT
+              You are #{agent_name}. Your ONLY job in this session is to update your memory file.
+
+              ## Instructions
+              1. Read your current memory file at `#{memory_file}` (it may be empty or outdated)
+              2. Review the COMPLETE thread conversation below
+              3. Rewrite the memory file with an accurate, comprehensive summary that captures:
+                 - The original topic/question that started the thread
+                 - ALL major topics discussed, decisions made, and direction changes
+                 - Current status of any implementation work
+                 - Key file paths, branch names, PR URLs mentioned
+                 - Open questions or next steps
+                 - Any user preferences or corrections expressed
+              4. Write the updated content to `#{memory_file}`
+
+              ## Rules
+              - Do NOT produce any other output or write any other files
+              - Do NOT make code changes
+              - Do NOT create branches or commits
+              - Focus purely on creating an accurate memory summary
+              - Keep it concise but complete — future sessions depend on this
+              - Preserve any information from the existing memory that's still relevant
+
+              ## Complete Thread History (oldest first)
+              ```
+              #{full_history}
+              ```
+            PROMPT
           end
 
           def monitor_agent(pid:, session_key:, agent_name:, agent_config_name:, channel_id:, message_id:,
