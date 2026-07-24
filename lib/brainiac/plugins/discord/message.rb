@@ -79,7 +79,7 @@ module Brainiac
               agent_key: agent_key, agent_name: agent_name, bot_token: bot_token, is_bot: is_bot,
               channel_id: channel_id, message_id: message_id, message: message,
               clean_content: clean_content, clean_content_for_prompt: tags[:clean_text],
-              chat_mode: tags[:chat_mode], is_thread: is_thread, is_dm: is_dm,
+              chat_mode: tags[:chat_mode], fresh: tags[:fresh], is_thread: is_thread, is_dm: is_dm,
               channel_info: channel_info, parent_channel_id: parent_channel_id,
               discord_user: discord_user, reply_context: reply_context,
               channel_history: channel_history, project_key: project_key,
@@ -389,7 +389,7 @@ module Brainiac
           end
 
           def route_dispatch(agent_key:, agent_name:, bot_token:, is_bot:, channel_id:, message_id:, message:,
-                             clean_content:, clean_content_for_prompt:, chat_mode:, is_thread:, is_dm:,
+                             clean_content:, clean_content_for_prompt:, chat_mode:, fresh: false, is_thread:, is_dm:,
                              channel_info:, parent_channel_id:, discord_user:, reply_context:,
                              channel_history:, project_key:, project_config:, attachment_paths:,
                              directly_addressed: false)
@@ -421,7 +421,7 @@ module Brainiac
                 agent_key: agent_key, agent_name: agent_name, bot_token: bot_token,
                 channel_id: channel_id, message_id: message_id, message: message,
                 clean_content: clean_content, clean_content_for_prompt: clean_content_for_prompt,
-                chat_mode: chat_mode, is_thread: is_thread, is_dm: is_dm,
+                chat_mode: chat_mode, fresh: fresh, is_thread: is_thread, is_dm: is_dm,
                 channel_info: channel_info, parent_channel_id: parent_channel_id,
                 discord_user: discord_user, reply_context: reply_context,
                 channel_history: channel_history, project_key: project_key,
@@ -484,7 +484,7 @@ module Brainiac
           end
 
           def dispatch_session(agent_key:, agent_name:, bot_token:, channel_id:, message_id:, message:,
-                               clean_content:, clean_content_for_prompt:, chat_mode:, is_thread:, is_dm:,
+                               clean_content:, clean_content_for_prompt:, chat_mode:, fresh: false, is_thread:, is_dm:,
                                channel_info:, parent_channel_id:, discord_user:, reply_context:,
                                channel_history:, project_key:, project_config:, project_context:,
                                session_key:, supersede_key:, attachment_paths:, is_bot:)
@@ -503,6 +503,12 @@ module Brainiac
               is_thread: is_thread, is_dm: is_dm, project_config: project_config, clean_content: clean_content,
               chat_mode: chat_mode, bot_token: bot_token
             )
+
+            # [fresh] tag forces a new session — skip resume even if viable
+            if fresh && should_resume
+              should_resume = false
+              LOG.info "[Discord:#{agent_name}] [fresh] tag — forcing new session instead of resuming" if defined?(LOG)
+            end
 
             prompt = build_prompt(
               should_resume: should_resume, thread_worktree_path: thread_worktree_path,
