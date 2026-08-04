@@ -12,8 +12,9 @@ module Brainiac
       # A poller thread recovers orphaned drafts (e.g. after a server restart).
       module Delivery
         BRAINIAC_DIR_PATH = ENV.fetch("BRAINIAC_DIR", File.join(Dir.home, ".brainiac"))
-        DRAFT_DIR  = File.join(BRAINIAC_DIR_PATH, "tmp", "discord", "draft")
-        POSTED_DIR = File.join(BRAINIAC_DIR_PATH, "tmp", "discord", "posted")
+        DRAFT_DIR   = File.join(BRAINIAC_DIR_PATH, "tmp", "discord", "draft")
+        POSTED_DIR  = File.join(BRAINIAC_DIR_PATH, "tmp", "discord", "posted")
+        PENDING_DIR = File.join(BRAINIAC_DIR_PATH, "tmp", "discord", "pending")
 
         POLLER_INTERVAL = 5   # seconds
         DRAFT_MIN_AGE = 30    # seconds — don't race the monitoring thread
@@ -30,6 +31,7 @@ module Brainiac
           def ensure_dirs!
             FileUtils.mkdir_p(DRAFT_DIR)
             FileUtils.mkdir_p(POSTED_DIR)
+            FileUtils.mkdir_p(PENDING_DIR)
           end
 
           def start_poller!

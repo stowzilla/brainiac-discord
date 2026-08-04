@@ -84,6 +84,19 @@ module Brainiac
           - The current topic/focus as of this session
           This is the ONLY way future sessions will know what happened in the middle of the conversation.
 
+          ### Pending Follow-Up Messages (check BEFORE writing your response)
+          While you're working, the user may send additional messages that get queued for you.
+          Before writing your response file, check for pending messages:
+          ```bash
+          ls {{PENDING_MESSAGES_GLOB}} 2>/dev/null
+          ```
+          If any files exist, read them — they contain JSON with `user`, `content`, and `timestamp`.
+          Incorporate the follow-up context into your response. Address anything new the user said.
+          After reading them, delete the pending files:
+          ```bash
+          rm -f {{PENDING_MESSAGES_GLOB}}
+          ```
+
         PROMPT
 
         SITUATION = <<~'PROMPT'
