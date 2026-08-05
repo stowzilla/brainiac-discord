@@ -401,6 +401,18 @@ module Brainiac
             end
             handle_supersede(is_bot, supersede_key, discord_user, agent_name, bot_token)
 
+            # If an agent is still running past the supersede window, queue the message
+            # for mid-session context injection instead of spawning a second agent.
+            unless is_bot
+              active = find_active_session_for_key(supersede_key)
+              if active
+                queue_pending_message(supersede_key, discord_user, clean_content, attachment_paths)
+                Thread.new { Api.add_reaction(channel_id, message_id, "📎", token: bot_token) }
+                LOG.info "[Discord:#{agent_name}] Queued follow-up from #{discord_user} for active session #{active[:session_key]}" if defined?(LOG)
+                return
+              end
+            end
+
             unless directly_addressed
               if intent_skip?(clean_content, agent_name: agent_name, source: :discord,
                               channel: "Discord #{is_thread ? "thread" : "channel"}", context: channel_history)
@@ -457,6 +469,37 @@ module Brainiac
               end
             end
             (prev[:draft_files] || []).each { |f| FileUtils.rm_f(f) }
+          end
+
+          def queue_pending_message(supersede_key, discord_user, content, attachment_paths)
+            FileUtils.mkdir_p(Delivery::PENDING_DIR)
+            safe_key = supersede_key.gsub(/[^a-zA-Z0-9-]/, "_")
+            timestamp = Time.now.strftime("%Y%m%d-%H%M%S-%L")
+            pending_file = File.join(Delivery::PENDING_DIR, "#{safe_key}-#{timestamp}.json")
+            payload = {
+              user: discord_user,
+              content: content,
+              timestamp: Time.now.iso8601,
+              attachments: attachment_paths || []
+            }
+            File.write(pending_file, JSON.pretty_generate(payload))
+          end
+
+          def pending_messages_for(supersede_key)
+            safe_key = supersede_key.gsub(/[^a-zA-Z0-9-]/, "_")
+            pattern = File.join(Delivery::PENDING_DIR, "#{safe_key}-*.json")
+            files = Dir.glob(pattern).sort
+            messages = files.filter_map do |f|
+              JSON.parse(File.read(f))
+            rescue JSON::ParserError
+              nil
+            end
+            [messages, files]
+          end
+
+          def clear_pending_messages(supersede_key)
+            _, files = pending_messages_for(supersede_key)
+            files.each { |f| FileUtils.rm_f(f) }
           end
 
           def build_project_context(project_key, project_config, agent_name)
@@ -528,7 +571,7 @@ module Brainiac
               discord_user: discord_user, channel_name: channel_info&.dig("name") || channel_id, reply_context: reply_context,
               channel_history: channel_history, thread_root_context: thread_root_context,
               project_context: project_context, response_file: response_file, card_id: card_id,
-              brain_context: brain_context, agent_name: agent_name
+              brain_context: brain_context, agent_name: agent_name, supersede_key: supersede_key
             )
 
             work_dir = chat_mode_fallback(agent_key, agent_name, message_id, chat_mode, thread_worktree_path) ||
@@ -823,7 +866,7 @@ module Brainiac
 
           def build_prompt(should_resume:, thread_worktree_path:, clean_content_for_prompt:,
                            discord_user:, channel_name:, reply_context:, channel_history:, thread_root_context:,
-                           project_context:, response_file:, card_id:, brain_context:, agent_name:)
+                           project_context:, response_file:, card_id:, brain_context:, agent_name:, supersede_key: nil)
             if should_resume && thread_worktree_path
               return Brainiac::Plugins::Discord::Prompts.render_resume(
                 message_body: clean_content_for_prompt, discord_user: discord_user,
@@ -831,12 +874,16 @@ module Brainiac
               )
             end
 
+            safe_key = supersede_key&.gsub(/[^a-zA-Z0-9-]/, "_") || "unknown"
+            pending_glob = File.join(Delivery::PENDING_DIR, "#{safe_key}-*.json")
+
             template_vars = {
               "DISCORD_USER" => discord_user, "CHANNEL_NAME" => channel_name,
               "MESSAGE_BODY" => clean_content_for_prompt, "REPLY_CONTEXT" => reply_context,
               "CHANNEL_HISTORY" => channel_history, "THREAD_ROOT_CONTEXT" => thread_root_context,
               "PROJECT_CONTEXT" => project_context, "RESPONSE_FILE" => response_file,
-              "COMMENT_CREATOR" => discord_user, "DISCORD_MENTION_ROSTER" => Api.mention_roster
+              "COMMENT_CREATOR" => discord_user, "DISCORD_MENTION_ROSTER" => Api.mention_roster,
+              "PENDING_MESSAGES_GLOB" => pending_glob
             }
 
             template_vars["CARD_ID"] = card_id
@@ -891,7 +938,8 @@ module Brainiac
               message_id: message_id, bot_token: bot_token, response_file: response_file,
               meta_file: meta_file, prompt_file: prompt_file, log_file: log_file,
               attachment_paths: attachment_paths, project_config: project_config,
-              head_before: head_before, status_before: status_before
+              head_before: head_before, status_before: status_before,
+              supersede_key: supersede_key
             )
           end
 
@@ -1034,10 +1082,13 @@ module Brainiac
 
           def monitor_agent(pid:, session_key:, agent_name:, agent_config_name:, channel_id:, message_id:,
                             bot_token:, response_file:, meta_file:, prompt_file:, log_file:,
-                            attachment_paths:, project_config:, head_before:, status_before:)
+                            attachment_paths:, project_config:, head_before:, status_before:, supersede_key: nil)
             Thread.new do
               Process.wait(pid)
               exit_status = $CHILD_STATUS
+
+              # Clean up any pending messages that the agent may not have consumed
+              clear_pending_messages(supersede_key) if supersede_key
 
               session_cancelled = ACTIVE_SESSIONS_MUTEX.synchronize { !ACTIVE_SESSIONS.key?(session_key) }
 
