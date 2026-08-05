@@ -192,18 +192,21 @@ module Brainiac
           # --- GIF Search ---
 
           def search_gif(query)
-            api_key = Config.giphy_api_key
+            api_key = Config.klipy_api_key
             return [] unless api_key
 
-            uri = URI("https://api.giphy.com/v1/gifs/search")
-            uri.query = URI.encode_www_form(api_key: api_key, q: query, limit: 5, rating: "pg-13")
+            uri = URI("https://api.klipy.com/v2/search")
+            uri.query = URI.encode_www_form(key: api_key, q: query, limit: 5, contentfilter: "medium")
             http = Net::HTTP.new(uri.host, uri.port)
             http.use_ssl = true
             response = http.get(uri)
             return [] unless response.code.to_i == 200
 
             data = JSON.parse(response.body)
-            (data["data"] || []).map { |g| { "url" => g.dig("images", "original", "url") || g["url"] } }
+            (data["results"] || []).filter_map do |r|
+              url = r.dig("media_formats", "gif", "url") || r.dig("media_formats", "mediumgif", "url") || r["url"]
+              { "url" => url } if url
+            end
           rescue StandardError => e
             LOG.warn "[Discord] GIF search error: #{e.message}" if defined?(LOG)
             []

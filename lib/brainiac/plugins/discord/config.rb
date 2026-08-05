@@ -53,8 +53,8 @@ module Brainiac
             @config["dashboard_token"]
           end
 
-          def giphy_api_key
-            @config["giphy_api_key"]
+          def klipy_api_key
+            @config["klipy_api_key"] || @config["giphy_api_key"]
           end
 
           def channel_mappings

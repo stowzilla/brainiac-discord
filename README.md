@@ -14,7 +14,7 @@ Each agent gets its own Discord bot. Users @mention @Galen or @GLaDOS directly �
 - **Emoji feedback** — non-reserved emoji reactions are logged as feedback to the agent's persona
 - **Thread isolation** — conversations get their own threads with worktree persistence
 - **Forum support** — cron jobs can post to forum channels
-- **GIF support** — agents can search and embed GIFs via GIPHY API
+- **GIF support** — agents can search and embed GIFs via Klipy API (formerly GIPHY)
 - **Draft delivery** — file-based response delivery survives server restarts
 
 ## Installation
@@ -92,7 +92,8 @@ Stored in `~/.brainiac/discord.json`:
   },
   "authorized_role_ids": [],
   "authorized_user_ids": [],
-  "giphy_api_key": "your-giphy-api-key"
+  "giphy_api_key": null,
+  "klipy_api_key": "your-klipy-api-key"
 }
 ```
 
