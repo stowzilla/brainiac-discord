@@ -203,9 +203,10 @@ module Brainiac
             return [] unless response.code.to_i == 200
 
             data = JSON.parse(response.body)
-            (data["results"] || []).map do |r|
-              { "url" => r.dig("media_formats", "gif", "url") || r.dig("media_formats", "mediumgif", "url") || r["url"] }
-            end.reject { |r| r["url"].nil? }
+            (data["results"] || []).filter_map do |r|
+              url = r.dig("media_formats", "gif", "url") || r.dig("media_formats", "mediumgif", "url") || r["url"]
+              { "url" => url } if url
+            end
           rescue StandardError => e
             LOG.warn "[Discord] GIF search error: #{e.message}" if defined?(LOG)
             []
