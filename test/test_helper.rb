@@ -147,7 +147,8 @@ discord_config = {
   "authorized_role_ids" => [],
   "authorized_user_ids" => [],
   "user_mappings" => { "Andy" => "397928984232591361" },
-  "giphy_api_key" => nil
+  "giphy_api_key" => nil,
+  "klipy_api_key" => nil
 }
 File.write(File.join(TEST_BRAINIAC_DIR, "discord.json"), JSON.generate(discord_config))
 

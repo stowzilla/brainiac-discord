@@ -11,5 +11,6 @@
   },
   "authorized_role_ids": [],
   "authorized_user_ids": [],
-  "giphy_api_key": null
+  "giphy_api_key": null,
+  "klipy_api_key": null
 }
