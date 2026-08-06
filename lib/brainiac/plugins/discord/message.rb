@@ -401,10 +401,10 @@ module Brainiac
             end
             handle_supersede(is_bot, supersede_key, discord_user, agent_name, bot_token)
 
-            # If an agent is still running past the supersede window, queue the message
+            # If an agent is still running (in supersede window), queue the message
             # for mid-session context injection instead of spawning a second agent.
             unless is_bot
-              active = find_active_session_for_key(supersede_key)
+              active = find_supersedable_session(supersede_key)
               if active
                 queue_pending_message(supersede_key, discord_user, clean_content, attachment_paths)
                 Thread.new { Api.add_reaction(channel_id, message_id, "📎", token: bot_token) }
