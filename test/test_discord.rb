@@ -133,7 +133,7 @@ class TestDiscordPersistOverrides < Minitest::Test
     Brainiac::Plugins::Discord::Config.save_thread_map(map)
 
     # Temporarily make detect_cli_provider work for real
-    Object.define_method(:detect_cli_provider) { |text: "", _tags: []| (m = text.match(/\[cli:(\w+)\]/i)) ? m[1].downcase : nil }
+    Object.define_method(:detect_cli_provider) { |text: "", tags: []| (m = text.match(/\[cli:(\w+)\]/i)) ? m[1].downcase : nil }
 
     Brainiac::Plugins::Discord::Message.send(
       :persist_overrides, "galen:thread123", "[cli:kiro] hello", nil,
@@ -144,7 +144,7 @@ class TestDiscordPersistOverrides < Minitest::Test
     updated = Brainiac::Plugins::Discord::Config.load_thread_map
     assert_equal "kiro", updated["galen:thread123"]["cli_provider"]
   ensure
-    Object.define_method(:detect_cli_provider) { |_text: "", _tags: []| nil }
+    Object.define_method(:detect_cli_provider) { |text: "", tags: []| nil }
   end
 
   def test_persist_overrides_updates_thread_map_model
