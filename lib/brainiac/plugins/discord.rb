@@ -89,7 +89,8 @@ module Brainiac
 
             # Handle forum posts
             if ctx[:forum_title] && Api.forum_channel?(target, token: token)
-              Api.create_forum_post(target, title: ctx[:forum_title], content: message, token: token)
+              title = "#{ctx[:forum_title]} — #{Time.now.strftime("%b %d, %Y")}"
+              Api.create_forum_post(target, title: title, content: message, token: token)
             elsif ctx[:forum_reply_to_latest] && Api.forum_channel?(target, token: token)
               latest = Api.find_latest_forum_thread(target, token: token)
               if latest
@@ -97,6 +98,9 @@ module Brainiac
               else
                 Api.send_long_message(target, message, token: token)
               end
+            elsif Api.forum_channel?(target, token: token)
+              title = "#{agent || "Notification"} — #{Time.now.strftime("%b %d, %Y")}"
+              Api.create_forum_post(target, title: title, content: message, token: token)
             else
               Api.send_long_message(target, message, token: token)
             end
