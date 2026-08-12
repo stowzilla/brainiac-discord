@@ -254,7 +254,7 @@ module Brainiac
             # Also check user_mappings for remote agent bots not connected locally
             agent_keys = []
             Gateway.each_bot { |key, _| agent_keys << key }
-            Config.user_mappings.each do |name, _discord_id|
+            Config.user_mappings.each_key do |name|
               normalized = name.downcase.gsub(/[^a-z0-9]/, "-")
               next if normalized == agent_key
               next if agent_keys.include?(normalized)
@@ -389,9 +389,7 @@ module Brainiac
           end
 
           def route_dispatch(agent_key:, agent_name:, bot_token:, is_bot:, channel_id:, message_id:, message:,
-                             clean_content:, clean_content_for_prompt:, chat_mode:, fresh: false, is_thread:, is_dm:,
-                             channel_info:, parent_channel_id:, discord_user:, reply_context:,
-                             channel_history:, project_key:, project_config:, attachment_paths:,
+                             clean_content:, clean_content_for_prompt:, chat_mode:, is_thread:, is_dm:, channel_info:, parent_channel_id:, discord_user:, reply_context:, channel_history:, project_key:, project_config:, attachment_paths:, fresh: false,
                              directly_addressed: false)
             session_key = "discord-#{agent_key}-#{channel_id}-#{message_id}"
             supersede_key = "discord-#{agent_key}-#{channel_id}"
@@ -413,12 +411,10 @@ module Brainiac
               end
             end
 
-            unless directly_addressed
-              if intent_skip?(clean_content, agent_name: agent_name, source: :discord,
-                              channel: "Discord #{is_thread ? "thread" : "channel"}", context: channel_history)
-                LOG.info "[Discord:#{agent_name}] Intent skip — not dispatching for: #{clean_content[0..80]}" if defined?(LOG)
-                return
-              end
+            if !directly_addressed && intent_skip?(clean_content, agent_name: agent_name, source: :discord,
+                                                                  channel: "Discord #{is_thread ? "thread" : "channel"}", context: channel_history)
+              LOG.info "[Discord:#{agent_name}] Intent skip — not dispatching for: #{clean_content[0..80]}" if defined?(LOG)
+              return
             end
 
             Thread.new do
@@ -488,7 +484,7 @@ module Brainiac
           def pending_messages_for(supersede_key)
             safe_key = supersede_key.gsub(/[^a-zA-Z0-9-]/, "_")
             pattern = File.join(Delivery::PENDING_DIR, "#{safe_key}-*.json")
-            files = Dir.glob(pattern).sort
+            files = Dir.glob(pattern)
             messages = files.filter_map do |f|
               JSON.parse(File.read(f))
             rescue JSON::ParserError
@@ -527,10 +523,7 @@ module Brainiac
           end
 
           def dispatch_session(agent_key:, agent_name:, bot_token:, channel_id:, message_id:, message:,
-                               clean_content:, clean_content_for_prompt:, chat_mode:, fresh: false, is_thread:, is_dm:,
-                               channel_info:, parent_channel_id:, discord_user:, reply_context:,
-                               channel_history:, project_key:, project_config:, project_context:,
-                               session_key:, supersede_key:, attachment_paths:, is_bot:)
+                               clean_content:, clean_content_for_prompt:, chat_mode:, is_thread:, is_dm:, channel_info:, parent_channel_id:, discord_user:, reply_context:, channel_history:, project_key:, project_config:, project_context:, session_key:, supersede_key:, attachment_paths:, is_bot:, fresh: false)
             timestamp = Time.now.strftime("%Y%m%d-%H%M%S")
             response_dir = File.join(Delivery::BRAINIAC_DIR_PATH, "tmp")
             response_basename = "discord-response-#{timestamp}-#{agent_key}-#{message_id}"
@@ -1033,10 +1026,10 @@ module Brainiac
             Process.wait(pid)
             exit_status = $CHILD_STATUS.exitstatus
 
-            if exit_status == 0
+            if exit_status.zero?
               LOG.info "[Discord:#{agent_name}] [fresh] Memory refresh completed successfully" if defined?(LOG)
-            else
-              LOG.warn "[Discord:#{agent_name}] [fresh] Memory refresh failed (exit: #{exit_status}), proceeding anyway" if defined?(LOG)
+            elsif defined?(LOG)
+              LOG.warn "[Discord:#{agent_name}] [fresh] Memory refresh failed (exit: #{exit_status}), proceeding anyway"
             end
 
             Api.remove_reaction(channel_id, message_id, "📖", token: bot_token)
@@ -1223,12 +1216,13 @@ module Brainiac
           # Detect transient CLI errors that don't warrant a full crash notification.
           # These are random upstream failures (model timeouts, tool approval glitches)
           # that resolve on retry — reacting with an emoji is sufficient.
-          TRANSIENT_CLI_ERROR_PATTERN = /
-            Failed\sto\sreceive\sthe\snext\smessage|
-            Kiro\sfailed\sto\sgenerate\sa\sresponse|
-            Tool\sapproval\srequired\sbut\s--no-interactive|
-            Kiro\sis\shaving\strouble\sresponding
-          /ix
+          TRANSIENT_CLI_ERROR_PATTERN = # rubocop:disable Lint/UselessConstantScoping
+            /
+              Failed\sto\sreceive\sthe\snext\smessage|
+              Kiro\sfailed\sto\sgenerate\sa\sresponse|
+              Tool\sapproval\srequired\sbut\s--no-interactive|
+              Kiro\sis\shaving\strouble\sresponding
+            /ix # rubocop:enable Lint/UselessConstantScoping
 
           def transient_cli_error?(log_file)
             return false unless log_file && File.exist?(log_file)
