@@ -918,6 +918,17 @@ module Brainiac
               LOG.info "[Discord:#{agent_name}] Injecting #{agent_env.size} env var(s): #{agent_env.keys.join(", ")}" if defined?(LOG)
             end
 
+            # Inject a GitHub App token so `gh`/`git` run as the agent's own bot
+            # identity (e.g. galen[bot]) instead of the host machine's personal
+            # `gh auth`. Without this, `gh pr create` in the prompt would open PRs
+            # under whoever is logged in on the box. No-op if the github plugin
+            # isn't loaded or the agent has no app configured.
+            gh_env = github_agent_token_env(agent_name, project_config)
+            unless gh_env.empty?
+              spawn_env.merge!(gh_env)
+              LOG.info "[Discord:#{agent_name}] Injecting GitHub App token (GH_TOKEN) for bot identity" if defined?(LOG)
+            end
+
             head_before, status_before = capture_brainiac_state(project_config, work_dir)
             prompt_mode = resolved["prompt_mode"] || "stdin"
 
@@ -942,6 +953,41 @@ module Brainiac
               head_before: head_before, status_before: status_before,
               supersede_key: supersede_key
             )
+          end
+
+          # Build a { "GH_TOKEN" => ... } env hash so the spawned agent's `gh`
+          # and `git` invocations authenticate as the agent's own GitHub App bot
+          # rather than the host's personal `gh auth`. This is what makes the
+          # prompt's `gh pr create` open PRs under e.g. galen[bot].
+          #
+          # Reuses the brainiac-github plugin's AppClient. The github plugin is
+          # optional, so everything is guarded: if it isn't loaded, or no app is
+          # configured for the agent (or the shared "brainiac" app), we return an
+          # empty hash and `gh` falls back to whatever's authenticated on the box.
+          def github_agent_token_env(agent_name, project_config)
+            return {} unless agent_name && project_config
+
+            repo = project_config["github_repo"]
+            return {} unless repo && !repo.to_s.empty?
+
+            return {} unless defined?(Brainiac::Plugins::Github::AppClient)
+
+            client = Brainiac::Plugins::Github::AppClient
+            effective_agent = if client.configured?(agent_name)
+                                agent_name
+                              elsif client.configured?("brainiac")
+                                "brainiac"
+                              end
+            return {} unless effective_agent
+
+            repo_owner = repo.to_s.split("/").first
+            token = client.installation_token_for(effective_agent, repo_owner: repo_owner)
+            return {} unless token && !token.empty?
+
+            { "GH_TOKEN" => token }
+          rescue StandardError => e
+            LOG.warn "[Discord:#{agent_name}] Could not mint GitHub App token: #{e.message}" if defined?(LOG)
+            {}
           end
 
           def capture_brainiac_state(project_config, work_dir)
