@@ -558,8 +558,24 @@ module Brainiac
               )
             end
 
+            # Resolve CLI overrides and work_dir BEFORE building the prompt so we can determine
+            # whether resume will actually work. This prevents sending a lean prompt when
+            # the CLI won't actually have session state.
+            work_dir = chat_mode_fallback(agent_key, agent_name, message_id, chat_mode, thread_worktree_path) ||
+                       (project_config ? project_config["repo_path"] : Dir.pwd)
+            model, effort, cli_provider_override = resolve_overrides(
+              clean_content, project_config, thread_model, thread_effort, thread_cli_provider
+            )
+            resolved = resolve_project_cli_config(project_config || DEFAULT_PROJECT,
+                                                  cli_provider_override: cli_provider_override, agent_name: agent_name)
+
+            # Convert should_resume to the actual flag/symbol. If resolve_resume returns false,
+            # we know the CLI won't actually resume, so we shouldn't send a lean prompt.
+            actual_resume = should_resume ? resolve_resume(true, resolved, work_dir) : false
+            use_lean_prompt = actual_resume && thread_worktree_path
+
             prompt = build_prompt(
-              should_resume: should_resume, thread_worktree_path: thread_worktree_path,
+              should_resume: use_lean_prompt, thread_worktree_path: thread_worktree_path,
               clean_content_for_prompt: clean_content_for_prompt,
               discord_user: discord_user, channel_name: channel_info&.dig("name") || channel_id, reply_context: reply_context,
               channel_history: channel_history, thread_root_context: thread_root_context,
@@ -567,14 +583,8 @@ module Brainiac
               brain_context: brain_context, agent_name: agent_name, supersede_key: supersede_key
             )
 
-            work_dir = chat_mode_fallback(agent_key, agent_name, message_id, chat_mode, thread_worktree_path) ||
-                       (project_config ? project_config["repo_path"] : Dir.pwd)
             prompt_file = File.join(response_dir, "discord-prompt-#{timestamp}-#{agent_key}-#{message_id}.md")
             File.write(prompt_file, prompt)
-
-            model, effort, cli_provider_override = resolve_overrides(
-              clean_content, project_config, thread_model, thread_effort, thread_cli_provider
-            )
 
             persist_overrides(thread_map_key, clean_content, project_config,
                               cli_provider: cli_provider_override, model: model, effort: effort,
@@ -592,8 +602,8 @@ module Brainiac
               agent_key: agent_key, agent_name: agent_name, bot_token: bot_token,
               channel_id: channel_id, message_id: message_id, discord_user: discord_user,
               work_dir: work_dir, prompt_file: prompt_file, response_file: response_file,
-              meta_file: meta_file, model: model, effort: effort, should_resume: should_resume,
-              cli_provider_override: cli_provider_override, project_config: project_config,
+              meta_file: meta_file, model: model, effort: effort, actual_resume: actual_resume,
+              resolved: resolved, project_config: project_config,
               session_key: session_key, supersede_key: supersede_key,
               attachment_paths: attachment_paths, timestamp: timestamp, response_dir: response_dir
             )
@@ -886,17 +896,15 @@ module Brainiac
 
           def spawn_agent(agent_key:, agent_name:, bot_token:, channel_id:, message_id:, discord_user:,
                           work_dir:, prompt_file:, response_file:, meta_file:, model:, effort:,
-                          should_resume:, cli_provider_override:, project_config:,
+                          actual_resume:, resolved:, project_config:,
                           session_key:, supersede_key:, attachment_paths:, timestamp:, response_dir:)
             agent_config_name = agent_key.downcase.gsub(/[^a-z0-9-]/, "-")
             log_file = File.join(response_dir, "discord-agent-#{timestamp}-#{agent_key}-#{message_id}.log")
 
-            resolved = resolve_project_cli_config(project_config || DEFAULT_PROJECT,
-                                                  cli_provider_override: cli_provider_override, agent_name: agent_name)
             cmd = build_agent_cmd(resolved, agent_config_name: agent_config_name, model: model, effort: effort,
-                                            prompt_file: prompt_file, resume: should_resume)
+                                            prompt_file: prompt_file, resume: actual_resume)
 
-            resume_note = should_resume ? ", resuming" : ""
+            resume_note = actual_resume ? ", resuming" : ""
             if defined?(LOG)
               LOG.info "[Discord:#{agent_name}] Dispatching for #{discord_user} " \
                        "(model: #{model || "default"}, effort: #{effort || "default"}, cli: #{resolved["agent_cli"]}#{resume_note}), tail -f #{log_file}"
