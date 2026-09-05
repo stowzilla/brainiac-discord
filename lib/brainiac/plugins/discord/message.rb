@@ -826,6 +826,13 @@ module Brainiac
             debounced_repo_fetch(repo_path)
             worktree_path = create_or_reuse_worktree(repo_path: repo_path, branch: branch)
 
+            # Register a work item so brainiac-github can route PR comments/reviews back
+            # to the agent that actually owns this Discord thread's worktree. Without this,
+            # PRs created from a conversational session have no work item and comments
+            # fall back to the project's default agent.
+            project_key = PROJECTS.find { |_k, v| v == project_config }&.first
+            register_work_item(branch: branch, worktree: worktree_path, project: project_key, agent: agent_name)
+
             cli, model, effort = detect_thread_overrides(
               project_config, clean_content,
               fallback_cli: existing&.dig("cli_provider"),
