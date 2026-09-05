@@ -48,8 +48,8 @@ module Brainiac
           3. Make the changes, test if applicable
           4. Commit with a clear message
           5. Push the branch
-          6. Summarize what you did in your response file
-          7. If it's substantial or needs review, mention opening a PR (but don't create it unless asked)
+          6. Open a PR with `gh pr create --fill` (or with a descriptive body)
+          7. Summarize what you did in your response file, including a link to the PR
 
           **When responding conversationally:**
           - Answer questions about the codebase, architecture, conventions
