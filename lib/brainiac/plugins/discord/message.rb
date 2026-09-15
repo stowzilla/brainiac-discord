@@ -939,6 +939,7 @@ module Brainiac
             head_before, status_before = capture_brainiac_state(project_config, work_dir)
             prompt_mode = resolved["prompt_mode"] || "stdin"
 
+            started_at = Time.now
             pid = spawn(spawn_env, *cmd,
                         chdir: work_dir,
                         **(prompt_mode == "stdin" ? { in: prompt_file } : {}),
@@ -958,7 +959,8 @@ module Brainiac
               meta_file: meta_file, prompt_file: prompt_file, log_file: log_file,
               attachment_paths: attachment_paths, project_config: project_config,
               head_before: head_before, status_before: status_before,
-              supersede_key: supersede_key
+              supersede_key: supersede_key,
+              resolved: resolved, model: model, work_dir: work_dir, started_at: started_at
             )
           end
 
@@ -1136,7 +1138,8 @@ module Brainiac
 
           def monitor_agent(pid:, session_key:, agent_name:, agent_config_name:, channel_id:, message_id:,
                             bot_token:, response_file:, meta_file:, prompt_file:, log_file:,
-                            attachment_paths:, project_config:, head_before:, status_before:, supersede_key: nil)
+                            attachment_paths:, project_config:, head_before:, status_before:, supersede_key: nil,
+                            resolved: nil, model: nil, work_dir: nil, started_at: nil)
             Thread.new do
               Process.wait(pid)
               exit_status = $CHILD_STATUS
@@ -1145,6 +1148,16 @@ module Brainiac
               clear_pending_messages(supersede_key) if supersede_key
 
               session_cancelled = ACTIVE_SESSIONS_MUTEX.synchronize { !ACTIVE_SESSIONS.key?(session_key) }
+
+              # Record a durable session-history entry regardless of how the session ended.
+              # Discord dispatches its own agents (bypassing core's run_agent/handle_agent_completion),
+              # so without this hook Discord sessions never land in ~/.brainiac/session-history.jsonl.
+              archive_discord_session_history(
+                agent_name: agent_name, agent_config_name: agent_config_name,
+                channel_id: channel_id, message_id: message_id, log_file: log_file,
+                resolved: resolved, model: model, work_dir: work_dir, started_at: started_at,
+                exit_status: exit_status
+              )
 
               if exit_status.signaled? || session_cancelled
                 handle_cancelled(exit_status, session_cancelled, agent_name, message_id,
@@ -1172,6 +1185,44 @@ module Brainiac
             LOG.info "[Discord:#{agent_name}] Agent was #{reason} for message #{message_id}" if defined?(LOG)
             [response_file, meta_file].each { |f| FileUtils.rm_f(f) }
             schedule_temp_cleanup(prompt_file, attachment_paths)
+          end
+
+          # Record a durable session-history entry for a finished Discord session.
+          #
+          # Discord runs agents via its own spawn_agent/monitor_agent path and never
+          # touches core's handle_agent_completion, which is the single choke point that
+          # normally calls archive_session_history. As a result, Discord sessions were
+          # missing entirely from ~/.brainiac/session-history.jsonl (only fizzy/github/etc
+          # showed up). This bridges that gap by building the ctx archive_session_history
+          # expects and calling it directly, with source: :discord.
+          #
+          # Fully best-effort: archive_session_history already rescues internally, but we
+          # guard here too so a history failure can never break Discord's completion path.
+          def archive_discord_session_history(agent_name:, agent_config_name:, channel_id:, message_id:,
+                                              log_file:, resolved:, model:, work_dir:, started_at:, exit_status:)
+            return unless defined?(archive_session_history)
+
+            ctx = {
+              agent_name: agent_name,
+              agent_config_name: agent_config_name,
+              source: :discord,
+              channel_id: channel_id,
+              source_context: { channel_id: channel_id, message_id: message_id },
+              log_file: log_file,
+              resolved: resolved,
+              chdir: work_dir,
+              agent_cli: resolved && resolved["agent_cli"],
+              model: model,
+              started_at: started_at
+            }
+
+            archive_session_history(
+              ctx: ctx,
+              exit_status: exit_status.exitstatus,
+              signaled: exit_status.signaled?
+            )
+          rescue StandardError => e
+            LOG.warn "[Discord:#{agent_name}] Failed to archive session history: #{e.message}" if defined?(LOG)
           end
 
           def handle_completed(exit_status:, agent_name:, agent_config_name:, channel_id:, message_id:,
