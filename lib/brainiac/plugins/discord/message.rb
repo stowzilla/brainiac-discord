@@ -926,6 +926,10 @@ module Brainiac
             # XDG_DATA_HOME). An explicitly-requested [profile:X] wins over agent
             # env; the default profile is only a fallback. See core profiles.rb.
             agent_env = profile_spawn_env(agent_env, profile) if defined?(profile_spawn_env)
+            # The *effective* profile name that actually ran (explicit if valid,
+            # else the default profile) — recorded in durable history so the
+            # monitor can show which account/profile the session used.
+            effective_profile = defined?(effective_profile_name) ? effective_profile_name(profile) : profile
             unless agent_env.empty?
               spawn_env.merge!(agent_env)
               LOG.info "[Discord:#{agent_name}] Injecting #{agent_env.size} env var(s): #{agent_env.keys.join(", ")}" if defined?(LOG)
@@ -966,7 +970,8 @@ module Brainiac
               attachment_paths: attachment_paths, project_config: project_config,
               head_before: head_before, status_before: status_before,
               supersede_key: supersede_key,
-              resolved: resolved, model: model, work_dir: work_dir, started_at: started_at
+              resolved: resolved, model: model, work_dir: work_dir, started_at: started_at,
+              profile: effective_profile
             )
           end
 
@@ -1145,7 +1150,7 @@ module Brainiac
           def monitor_agent(pid:, session_key:, agent_name:, agent_config_name:, channel_id:, message_id:,
                             bot_token:, response_file:, meta_file:, prompt_file:, log_file:,
                             attachment_paths:, project_config:, head_before:, status_before:, supersede_key: nil,
-                            resolved: nil, model: nil, work_dir: nil, started_at: nil)
+                            resolved: nil, model: nil, work_dir: nil, started_at: nil, profile: nil)
             Thread.new do
               Process.wait(pid)
               exit_status = $CHILD_STATUS
@@ -1162,7 +1167,7 @@ module Brainiac
                 agent_name: agent_name, agent_config_name: agent_config_name,
                 channel_id: channel_id, message_id: message_id, log_file: log_file,
                 resolved: resolved, model: model, work_dir: work_dir, started_at: started_at,
-                exit_status: exit_status
+                exit_status: exit_status, profile: profile
               )
 
               if exit_status.signaled? || session_cancelled
@@ -1205,7 +1210,8 @@ module Brainiac
           # Fully best-effort: archive_session_history already rescues internally, but we
           # guard here too so a history failure can never break Discord's completion path.
           def archive_discord_session_history(agent_name:, agent_config_name:, channel_id:, message_id:,
-                                              log_file:, resolved:, model:, work_dir:, started_at:, exit_status:)
+                                              log_file:, resolved:, model:, work_dir:, started_at:, exit_status:,
+                                              profile: nil)
             return unless defined?(archive_session_history)
 
             ctx = {
@@ -1219,6 +1225,7 @@ module Brainiac
               chdir: work_dir,
               agent_cli: resolved && resolved["agent_cli"],
               model: model,
+              profile: profile,
               started_at: started_at
             }
 
