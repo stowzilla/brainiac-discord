@@ -946,6 +946,13 @@ module Brainiac
               LOG.info "[Discord:#{agent_name}] Injecting GitHub App token (GH_TOKEN) for bot identity" if defined?(LOG)
             end
 
+            # For providers with no runtime --model flag (e.g. kiro-cli, model_flag: ""),
+            # persist the model to the provider's settings store before spawning. Discord
+            # dispatches its own agents and never calls core's run_agent, so we invoke the
+            # same helper here — running it under the fully-assembled spawn_env so the write
+            # targets the correct account's KIRO_HOME. No-op when a model_flag is configured.
+            apply_settings_model(model, resolved, spawn_env) if defined?(apply_settings_model)
+
             head_before, status_before = capture_brainiac_state(project_config, work_dir)
             prompt_mode = resolved["prompt_mode"] || "stdin"
 
