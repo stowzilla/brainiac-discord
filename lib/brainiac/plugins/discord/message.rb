@@ -61,6 +61,7 @@ module Brainiac
 
             reload_projects!
             reload_agent_registry!
+            reload_profiles! if defined?(reload_profiles!)
             Config.reload!
             return unless authorize_user(discord_user, discord_user_id, message, channel_id, message_id, agent_name, bot_token)
 
@@ -605,7 +606,8 @@ module Brainiac
               meta_file: meta_file, model: model, effort: effort, actual_resume: actual_resume,
               resolved: resolved, project_config: project_config,
               session_key: session_key, supersede_key: supersede_key,
-              attachment_paths: attachment_paths, timestamp: timestamp, response_dir: response_dir
+              attachment_paths: attachment_paths, timestamp: timestamp, response_dir: response_dir,
+              profile: parse_inline_tags(clean_content)[:profile]
             )
           end
 
@@ -904,7 +906,7 @@ module Brainiac
           def spawn_agent(agent_key:, agent_name:, bot_token:, channel_id:, message_id:, discord_user:,
                           work_dir:, prompt_file:, response_file:, meta_file:, model:, effort:,
                           actual_resume:, resolved:, project_config:,
-                          session_key:, supersede_key:, attachment_paths:, timestamp:, response_dir:)
+                          session_key:, supersede_key:, attachment_paths:, timestamp:, response_dir:, profile: nil)
             agent_config_name = agent_key.downcase.gsub(/[^a-z0-9-]/, "-")
             log_file = File.join(response_dir, "discord-agent-#{timestamp}-#{agent_key}-#{message_id}.log")
 
@@ -920,6 +922,10 @@ module Brainiac
 
             spawn_env = {}
             agent_env = agent_env_for(agent_name)
+            # Profile env (named bundle, e.g. an alternate kiro-cli account via
+            # XDG_DATA_HOME). An explicitly-requested [profile:X] wins over agent
+            # env; the default profile is only a fallback. See core profiles.rb.
+            agent_env = profile_spawn_env(agent_env, profile) if defined?(profile_spawn_env)
             unless agent_env.empty?
               spawn_env.merge!(agent_env)
               LOG.info "[Discord:#{agent_name}] Injecting #{agent_env.size} env var(s): #{agent_env.keys.join(", ")}" if defined?(LOG)
