@@ -266,6 +266,73 @@ class TestDiscordGateway < Minitest::Test
   end
 end
 
+class TestDiscordGatewayReconnect < Minitest::Test
+  Gateway = Brainiac::Plugins::Discord::Gateway
+
+  def test_backoff_delay_stays_within_base_and_cap
+    base = Gateway::BACKOFF_BASE
+    20.times do |attempt|
+      delay = Gateway.send(:backoff_delay, attempt, base)
+      assert_operator delay, :>=, base, "delay should never be below the base"
+      assert_operator delay, :<=, Gateway::BACKOFF_CAP, "delay should never exceed the cap"
+    end
+  end
+
+  def test_backoff_delay_ceiling_grows_with_attempt
+    base = Gateway::BACKOFF_BASE
+    # The ceiling for attempt 0 is `base`, so delay is exactly base.
+    assert_in_delta base, Gateway.send(:backoff_delay, 0, base), 0.0001
+    # Higher attempts can produce larger delays (sample many draws for the max).
+    max_attempt2 = (0..200).map { Gateway.send(:backoff_delay, 2, base) }.max
+    assert_operator max_attempt2, :>, base, "later attempts should be able to exceed base"
+  end
+
+  def test_handshake_backoff_base_is_higher_than_normal
+    assert_operator Gateway::BACKOFF_HANDSHAKE_BASE, :>, Gateway::BACKOFF_BASE,
+                    "handshake rejections should back off more aggressively than transient errors"
+  end
+
+  def test_resolve_gateway_url_uses_discord_recommended_url
+    info = { "url" => "wss://gateway.discord.gg", "session_start_limit" => { "remaining" => 500, "reset_after" => 0 } }
+    Brainiac::Plugins::Discord::Api.stub(:request, info) do
+      url = Gateway.send(:resolve_gateway_url, "Bot_token", "Galen")
+      assert_equal "wss://gateway.discord.gg/#{Gateway::GATEWAY_QUERY}", url
+    end
+  end
+
+  def test_resolve_gateway_url_falls_back_on_missing_url
+    Brainiac::Plugins::Discord::Api.stub(:request, nil) do
+      url = Gateway.send(:resolve_gateway_url, "Bot_token", "Galen")
+      assert_equal Gateway::GATEWAY_URL, url
+    end
+  end
+
+  def test_resolve_gateway_url_falls_back_on_exception
+    Brainiac::Plugins::Discord::Api.stub(:request, ->(*) { raise "boom" }) do
+      url = Gateway.send(:resolve_gateway_url, "Bot_token", "Galen")
+      assert_equal Gateway::GATEWAY_URL, url
+    end
+  end
+
+  def test_honor_session_limit_sleeps_when_exhausted
+    limit = { "remaining" => 0, "reset_after" => 500 }
+    slept = nil
+    Gateway.stub(:sleep, ->(s) { slept = s }) do
+      Gateway.send(:honor_session_limit, limit, "Galen")
+    end
+    assert_equal 1, slept, "reset_after 500ms should round up to a 1s wait"
+  end
+
+  def test_honor_session_limit_noop_when_remaining
+    limit = { "remaining" => 10, "reset_after" => 5000 }
+    slept = false
+    Gateway.stub(:sleep, ->(_s) { slept = true }) do
+      Gateway.send(:honor_session_limit, limit, "Galen")
+    end
+    refute slept, "should not wait when identifies remain"
+  end
+end
+
 class TestDiscordApi < Minitest::Test
   def test_reserved_emojis_defined
     assert_includes Brainiac::Plugins::Discord::Api::RESERVED_EMOJIS, "👀"
