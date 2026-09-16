@@ -920,20 +920,10 @@ module Brainiac
             end
             LOG.info "[Discord:#{agent_name}] Command: #{cmd.join(" ")}" if defined?(LOG)
 
-            spawn_env = {}
-            agent_env = agent_env_for(agent_name)
-            # Profile env (named bundle, e.g. an alternate kiro-cli account via
-            # XDG_DATA_HOME). An explicitly-requested [profile:X] wins over agent
-            # env; the default profile is only a fallback. See core profiles.rb.
-            agent_env = profile_spawn_env(agent_env, profile) if defined?(profile_spawn_env)
             # The *effective* profile name that actually ran (explicit if valid,
             # else the default profile) — recorded in durable history so the
             # monitor can show which account/profile the session used.
             effective_profile = defined?(effective_profile_name) ? effective_profile_name(profile) : profile
-            unless agent_env.empty?
-              spawn_env.merge!(agent_env)
-              LOG.info "[Discord:#{agent_name}] Injecting #{agent_env.size} env var(s): #{agent_env.keys.join(", ")}" if defined?(LOG)
-            end
 
             # Inject a GitHub App token so `gh`/`git` run as the agent's own bot
             # identity (e.g. galen[bot]) instead of the host machine's personal
@@ -941,17 +931,27 @@ module Brainiac
             # under whoever is logged in on the box. No-op if the github plugin
             # isn't loaded or the agent has no app configured.
             gh_env = github_agent_token_env(agent_name, project_config)
-            unless gh_env.empty?
-              spawn_env.merge!(gh_env)
-              LOG.info "[Discord:#{agent_name}] Injecting GitHub App token (GH_TOKEN) for bot identity" if defined?(LOG)
-            end
 
-            # For providers with no runtime --model flag (e.g. kiro-cli, model_flag: ""),
-            # persist the model to the provider's settings store before spawning. Discord
-            # dispatches its own agents and never calls core's run_agent, so we invoke the
-            # same helper here — running it under the fully-assembled spawn_env so the write
-            # targets the correct account's KIRO_HOME. No-op when a model_flag is configured.
-            apply_settings_model(model, resolved, spawn_env) if defined?(apply_settings_model)
+            # Assemble the spawn env via core's shared dispatch-prep path so env
+            # layering (agent env -> profile -> gh token) and the pre-dispatch
+            # settings write (kiro-cli chat.defaultModel) live in ONE place that
+            # core's run_agent uses too — no more mirroring dispatch logic into
+            # this plugin's parallel copy. The gh token is passed as extra_env so
+            # it layers on top. build_dispatch_env runs apply_settings_model under
+            # the fully-assembled env, targeting the correct account's KIRO_HOME.
+            # Fallback path guards against older core that predates the helper.
+            if defined?(build_dispatch_env)
+              spawn_env = build_dispatch_env(resolved, agent_name: agent_name, profile: profile,
+                                                       model: model, extra_env: gh_env)
+              LOG.info "[Discord:#{agent_name}] Dispatch env: #{spawn_env.keys.join(", ")}" if defined?(LOG) && !spawn_env.empty?
+            else
+              spawn_env = {}
+              agent_env = agent_env_for(agent_name)
+              agent_env = profile_spawn_env(agent_env, profile) if defined?(profile_spawn_env)
+              spawn_env.merge!(agent_env) unless agent_env.empty?
+              spawn_env.merge!(gh_env) unless gh_env.empty?
+              apply_settings_model(model, resolved, spawn_env) if defined?(apply_settings_model)
+            end
 
             head_before, status_before = capture_brainiac_state(project_config, work_dir)
             prompt_mode = resolved["prompt_mode"] || "stdin"
