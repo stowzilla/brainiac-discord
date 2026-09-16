@@ -607,7 +607,8 @@ module Brainiac
               resolved: resolved, project_config: project_config,
               session_key: session_key, supersede_key: supersede_key,
               attachment_paths: attachment_paths, timestamp: timestamp, response_dir: response_dir,
-              profile: parse_inline_tags(clean_content)[:profile]
+              profile: parse_inline_tags(clean_content)[:profile],
+              explicit_model: explicit_model_tag?(clean_content, project_config, cli_provider_override: cli_provider_override)
             )
           end
 
@@ -906,7 +907,8 @@ module Brainiac
           def spawn_agent(agent_key:, agent_name:, bot_token:, channel_id:, message_id:, discord_user:,
                           work_dir:, prompt_file:, response_file:, meta_file:, model:, effort:,
                           actual_resume:, resolved:, project_config:,
-                          session_key:, supersede_key:, attachment_paths:, timestamp:, response_dir:, profile: nil)
+                          session_key:, supersede_key:, attachment_paths:, timestamp:, response_dir:, profile: nil,
+                          explicit_model: nil)
             agent_config_name = agent_key.downcase.gsub(/[^a-z0-9-]/, "-")
             log_file = File.join(response_dir, "discord-agent-#{timestamp}-#{agent_key}-#{message_id}.log")
 
@@ -951,7 +953,16 @@ module Brainiac
             # dispatches its own agents and never calls core's run_agent, so we invoke the
             # same helper here — running it under the fully-assembled spawn_env so the write
             # targets the correct account's KIRO_HOME. No-op when a model_flag is configured.
-            apply_settings_model(model, resolved, spawn_env) if defined?(apply_settings_model)
+            # explicit_model tells the helper whether this came from an inline tag: an explicit
+            # [auto] writes (a deliberate reset), a defaulted "auto" does not. Guard the kwarg
+            # against older core builds whose apply_settings_model has no `explicit:` param.
+            if defined?(apply_settings_model)
+              if method(:apply_settings_model).parameters.any? { |t, n| t == :key && n == :explicit }
+                apply_settings_model(model, resolved, spawn_env, explicit: explicit_model)
+              else
+                apply_settings_model(model, resolved, spawn_env)
+              end
+            end
 
             head_before, status_before = capture_brainiac_state(project_config, work_dir)
             prompt_mode = resolved["prompt_mode"] || "stdin"
