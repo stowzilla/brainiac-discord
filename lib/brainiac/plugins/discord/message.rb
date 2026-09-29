@@ -607,7 +607,7 @@ module Brainiac
               resolved: resolved, project_config: project_config,
               session_key: session_key, supersede_key: supersede_key,
               attachment_paths: attachment_paths, timestamp: timestamp, response_dir: response_dir,
-              profile: parse_inline_tags(clean_content)[:profile],
+              profile: resolve_thread_profile(thread_map_key, clean_content),
               explicit_model: explicit_model_tag?(clean_content, project_config, cli_provider_override: cli_provider_override)
             )
           end
@@ -711,6 +711,55 @@ module Brainiac
 
             LOG.info "[Discord] Persisted overrides for #{thread_map_key}: " \
                      "cli=#{cli_provider}, model=#{model}, effort=#{effort}"
+          end
+
+          # Resolve the profile ([profile:X]/[p:X]) for this dispatch and make it sticky.
+          #
+          # An inline tag wins and is saved on the thread map entry (and the core work item),
+          # so later untagged replies in the same thread keep running on that profile until a
+          # different [p:X] replaces it. Without a tag, the stored thread profile is used, then
+          # the work item's (e.g. set from a Fizzy card). nil means the default profile.
+          # Unknown profile names are passed through (core ignores them with a warning) but
+          # never saved, so a typo can't pin the thread to a nonexistent profile.
+          def resolve_thread_profile(thread_map_key, clean_content)
+            inline = parse_inline_tags(clean_content)[:profile]
+            return inline unless thread_map_key
+
+            if inline
+              persist_thread_profile(thread_map_key, inline) if !defined?(profile_entry) || profile_entry(inline)
+              return inline
+            end
+
+            entry = Config.thread_map_mutex.synchronize { Config.load_thread_map[thread_map_key] }
+            return nil unless entry
+
+            entry["profile"] || work_item_profile_for(entry["branch"])
+          end
+
+          def persist_thread_profile(thread_map_key, profile)
+            branch = Config.thread_map_mutex.synchronize do
+              map = Config.load_thread_map
+              entry = map[thread_map_key]
+              next nil unless entry
+
+              if entry["profile"] != profile
+                entry["profile"] = profile
+                Config.save_thread_map(map)
+                LOG.info "[Discord] Persisted profile for #{thread_map_key}: #{profile}" if defined?(LOG)
+              end
+              entry["branch"]
+            end
+
+            return unless branch && defined?(update_work_item_overrides) &&
+                          method(:update_work_item_overrides).parameters.any? { |t, n| t == :key && n == :profile }
+
+            update_work_item_overrides(branch: branch, profile: profile)
+          end
+
+          def work_item_profile_for(branch)
+            return nil unless branch && defined?(work_item_overrides_for)
+
+            work_item_overrides_for(branch: branch)["profile"]
           end
 
           def explicit_model_tag?(clean_content, project_config, cli_provider_override: nil)
@@ -872,6 +921,8 @@ module Brainiac
                         "model" => model, "effort" => effort, "created_at" => Time.now.iso8601 }
               entry["branch"] = branch if branch
               entry["chat_mode"] = true if chat_mode
+              # Keep a sticky profile when an entry is rebuilt (e.g. its worktree was recreated).
+              entry["profile"] = map.dig(thread_map_key, "profile") if map.dig(thread_map_key, "profile")
               map[thread_map_key] = entry
               Config.save_thread_map(map)
             end

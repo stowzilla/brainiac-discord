@@ -589,3 +589,43 @@ class TestOtherAgentMentioned < Minitest::Test
     Brainiac::Plugins::Discord::Config.instance_variable_set(:@config, original_config)
   end
 end
+
+class TestDiscordStickyProfile < Minitest::Test
+  KEY = "galen:thread-profile"
+
+  def setup
+    @thread_map_file = Brainiac::Plugins::Discord::Config::DISCORD_THREAD_MAP_FILE
+    FileUtils.rm_f(@thread_map_file)
+    Brainiac::Plugins::Discord::Config.save_thread_map(KEY => { "worktree" => "/tmp/wt", "branch" => "discord-galen-profile" })
+    # Parse only the [p:X] tag for these tests
+    Object.define_method(:parse_inline_tags) do |text|
+      { project: nil, clean_text: text, chat_mode: false, profile: text[/\[(?:profile|p):([^\]]+)\]/i, 1]&.downcase }
+    end
+  end
+
+  def teardown
+    FileUtils.rm_f(@thread_map_file)
+    Object.define_method(:parse_inline_tags) { |text| { project: nil, clean_text: text, chat_mode: false } }
+  end
+
+  def resolve(text, key = KEY)
+    Brainiac::Plugins::Discord::Message.send(:resolve_thread_profile, key, text)
+  end
+
+  def test_profile_sticks_to_thread_until_changed
+    assert_equal "k+", resolve("[p:k+] [sol] start")
+    assert_equal "k+", resolve("untagged follow-up")
+    assert_equal "q", resolve("[p:q] switch back")
+    assert_equal "q", resolve("another untagged reply")
+    assert_equal "q", Brainiac::Plugins::Discord::Config.load_thread_map[KEY]["profile"]
+  end
+
+  def test_no_profile_without_tag_or_stored_value
+    assert_nil resolve("plain message")
+  end
+
+  def test_inline_profile_without_thread_map_key_is_not_persisted
+    assert_equal "k+", resolve("[p:k+] dm", nil)
+    assert_nil Brainiac::Plugins::Discord::Config.load_thread_map[KEY]["profile"]
+  end
+end
