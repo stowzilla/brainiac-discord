@@ -73,7 +73,8 @@ module Brainiac
                 tags: tags, agent_key: agent_key, agent_name: agent_name, bot_token: bot_token,
                 channel_id: channel_id, message_id: message_id, message: message,
                 clean_content: clean_content, parent_channel_id: parent_channel_id,
-                discord_user: discord_user, attachment_paths: attachment_paths
+                discord_user: discord_user, attachment_paths: attachment_paths,
+                is_thread: is_thread
               )
             end
 
@@ -105,7 +106,7 @@ module Brainiac
           # Handle [fork] or [fork:topic] tag — create a branch thread and dispatch to it.
           # The branched thread starts unbound (no worktree) and inherits the parent's project.
           def handle_fork_branch(tags:, agent_key:, agent_name:, bot_token:, channel_id:, message_id:,
-                                 message:, clean_content:, parent_channel_id:, discord_user:, attachment_paths:)
+                                 message:, clean_content:, parent_channel_id:, discord_user:, attachment_paths:, is_thread:)
             topic = tags[:fork_branch] == true ? nil : tags[:fork_branch]
 
             # Resolve project from channel mapping (inherited, but not locked until implementation)
@@ -113,8 +114,11 @@ module Brainiac
 
             # Create the branch thread
             thread = Branching.fork_conversation(
-              channel_id: channel_id,
-              message_id: message_id,
+              source_channel_id: channel_id,
+              source_message_id: message_id,
+              source_message: nil, # Will be fetched by Branching
+              source_is_thread: is_thread,
+              parent_channel_id: parent_channel_id,
               topic: topic,
               agent_key: agent_key,
               agent_name: agent_name,
