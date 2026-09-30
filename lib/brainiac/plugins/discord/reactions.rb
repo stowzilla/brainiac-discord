@@ -253,9 +253,7 @@ module Brainiac
               FORK_DEDUP.delete_if { |_, claimed_at| now - claimed_at > FORK_DEDUP_TTL }
 
               # Check if already claimed
-              if FORK_DEDUP.key?(dedup_key)
-                return false
-              end
+              return false if FORK_DEDUP.key?(dedup_key)
 
               # Claim it
               FORK_DEDUP[dedup_key] = now
