@@ -66,6 +66,17 @@ module Brainiac
             return unless authorize_user(discord_user, discord_user_id, message, channel_id, message_id, agent_name, bot_token)
 
             tags = parse_inline_tags(clean_content)
+
+            # [fork] or [fork:topic] — branch the conversation before dispatching
+            if tags[:fork_branch]
+              return handle_fork_branch(
+                tags: tags, agent_key: agent_key, agent_name: agent_name, bot_token: bot_token,
+                channel_id: channel_id, message_id: message_id, message: message,
+                clean_content: clean_content, parent_channel_id: parent_channel_id,
+                discord_user: discord_user, attachment_paths: attachment_paths
+              )
+            end
+
             project_key, project_config = resolve_project(tags[:project], parent_channel_id, agent_name, channel_id, message_id, bot_token)
 
             # Thread owners bypass intent checking ONLY when they're the sole agent in
@@ -90,6 +101,64 @@ module Brainiac
           end
 
           private
+
+          # Handle [fork] or [fork:topic] tag — create a branch thread and dispatch to it.
+          # The branched thread starts unbound (no worktree) and inherits the parent's project.
+          def handle_fork_branch(tags:, agent_key:, agent_name:, bot_token:, channel_id:, message_id:,
+                                 message:, clean_content:, parent_channel_id:, discord_user:, attachment_paths:)
+            topic = tags[:fork_branch] == true ? nil : tags[:fork_branch]
+
+            # Resolve project from channel mapping (inherited, but not locked until implementation)
+            project_key, _project_config, _mapping = Config.find_project_for_channel(parent_channel_id)
+
+            # Create the branch thread
+            thread = Branching.fork_conversation(
+              channel_id: channel_id,
+              message_id: message_id,
+              topic: topic,
+              agent_key: agent_key,
+              agent_name: agent_name,
+              bot_token: bot_token,
+              project_key: project_key
+            )
+
+            unless thread
+              LOG.error "[Discord:#{agent_name}] Failed to create fork branch" if defined?(LOG)
+              Thread.new { Api.add_reaction(channel_id, message_id, "⚠️", token: bot_token) }
+              return
+            end
+
+            branch_thread_id = thread["id"]
+            LOG.info "[Discord:#{agent_name}] Forked to thread #{branch_thread_id}, dispatching there" if defined?(LOG)
+
+            # Now dispatch to the new thread
+            # Re-synthesize a message event as if it came from the new thread
+            branch_message = message.dup
+            branch_message["channel_id"] = branch_thread_id
+
+            # Fetch fresh channel info for the new thread
+            branch_channel_info = Api.fetch_channel_info(branch_thread_id, token: bot_token)
+
+            # Build context for the branched thread (no prior history since it's new)
+            branch_channel_history = ""
+
+            # Resolve project again (same result, but for clarity)
+            branch_project_key, branch_project_config = resolve_project(tags[:project], parent_channel_id, agent_name,
+                                                                        branch_thread_id, message_id, bot_token)
+
+            # Dispatch to the branch
+            route_dispatch(
+              agent_key: agent_key, agent_name: agent_name, bot_token: bot_token, is_bot: false,
+              channel_id: branch_thread_id, message_id: message_id, message: branch_message,
+              clean_content: clean_content, clean_content_for_prompt: tags[:clean_text],
+              chat_mode: tags[:chat_mode], fresh: tags[:fresh], is_thread: true, is_dm: false,
+              channel_info: branch_channel_info, parent_channel_id: parent_channel_id,
+              discord_user: discord_user, reply_context: "",
+              channel_history: branch_channel_history, project_key: branch_project_key,
+              project_config: branch_project_config, attachment_paths: attachment_paths,
+              directly_addressed: true # User explicitly forked to us
+            )
+          end
 
           # Check if the agent's Discord role was @mentioned in this message.
           # Discord role mentions use <@&ROLE_ID> syntax and populate mention_roles array.

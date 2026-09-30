@@ -31,6 +31,8 @@ module Brainiac
               handle_thinking_stream(agent_key, agent_name, channel_id, message_id, bot_token)
             when "❌"
               handle_cancel(agent_key, agent_name, channel_id, message_id, bot_token)
+            when "🌿"
+              handle_branch(agent_key, agent_name, channel_id, message_id, bot_token)
             else
               unless Api::RESERVED_EMOJIS.include?(emoji_name)
                 Thread.new do
@@ -169,6 +171,32 @@ module Brainiac
 
               session_info[:draft_files]&.each { |file| FileUtils.rm_f(file) }
             end
+          end
+
+          # Handle 🌿 reaction — fork the conversation into a new thread.
+          # The reacted message becomes the root of the new branch.
+          def handle_branch(agent_key, agent_name, channel_id, message_id, bot_token)
+            LOG.info "[Discord:#{agent_name}] 🌿 branch reaction on message #{message_id} in channel #{channel_id}" if defined?(LOG)
+
+            # Check if we're in a thread — get parent channel for project resolution
+            channel_info = Api.fetch_channel_info(channel_id, token: bot_token)
+            is_thread = channel_info && [11, 12].include?(channel_info["type"])
+            parent_channel_id = is_thread ? channel_info["parent_id"] : channel_id
+
+            # Resolve project from channel mapping (inherited, but not locked)
+            project_key, _project_config, _mapping = Config.find_project_for_channel(parent_channel_id)
+
+            thread = Branching.fork_conversation(
+              channel_id: channel_id,
+              message_id: message_id,
+              topic: nil, # Auto-generate from message content
+              agent_key: agent_key,
+              agent_name: agent_name,
+              bot_token: bot_token,
+              project_key: project_key
+            )
+
+            Api.add_reaction(channel_id, message_id, "⚠️", token: bot_token) unless thread
           end
 
           def log_emoji_feedback(channel_id, message_id, user_id, emoji_name, agent_key, agent_name, bot_token)
