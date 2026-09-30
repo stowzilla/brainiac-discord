@@ -66,9 +66,15 @@ module Brainiac
           private
 
           # Strip inline tags from content for cleaner thread titles.
+          #
+          # The bracket-tag regex uses an atomic group ((?>...)) around the tag
+          # name so the engine can't backtrack into overlapping alternatives on
+          # malformed input like "[p:[?:[?:...". Without it, the "p"/"?"
+          # alternatives combined with the unbounded [^\]]+ argument create
+          # polynomial-time backtracking (ReDoS) on adversarial strings.
           def strip_inline_tags(content)
             content
-              .gsub(/\[(?:fork|branch|project|effort|cli|profile|p|deploy|chat|question|\?|fresh|plan|worktree|workitem)(?::[^\]]+)?\]/i, "")
+              .gsub(%r{\[(?>fork|branch|project|effort|cli|profile|p|deploy|chat|question|\?|fresh|plan|worktree|workitem)(?::[^\]]*)?\]}i, "")
               .gsub(/\[\w+\]/i, "") # Model tags and others
               .gsub(/<@!?\d+>/, "") # Discord mentions
               .strip
