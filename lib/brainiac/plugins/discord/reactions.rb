@@ -196,9 +196,7 @@ module Brainiac
               project_key: project_key
             )
 
-            unless thread
-              Api.add_reaction(channel_id, message_id, "⚠️", token: bot_token)
-            end
+            Api.add_reaction(channel_id, message_id, "⚠️", token: bot_token) unless thread
           end
 
           def log_emoji_feedback(channel_id, message_id, user_id, emoji_name, agent_key, agent_name, bot_token)

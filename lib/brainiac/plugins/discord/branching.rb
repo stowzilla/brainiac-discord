@@ -24,7 +24,7 @@ module Brainiac
           # @param bot_token [String] Discord bot token
           # @param project_key [String, nil] Optional project to inherit (not locked until implementation)
           # @return [Hash, nil] The created thread object, or nil on failure
-          def fork_conversation(channel_id:, message_id:, topic: nil, agent_key:, agent_name:, bot_token:, project_key: nil)
+          def fork_conversation(channel_id:, message_id:, agent_key:, agent_name:, bot_token:, topic: nil, project_key: nil)
             # Fetch the source message to get its content for the thread title
             source_message = Api.fetch_message(channel_id, message_id, token: bot_token)
             unless source_message
@@ -74,7 +74,7 @@ module Brainiac
           # polynomial-time backtracking (ReDoS) on adversarial strings.
           def strip_inline_tags(content)
             content
-              .gsub(%r{\[(?>fork|branch|project|effort|cli|profile|p|deploy|chat|question|\?|fresh|plan|worktree|workitem)(?::[^\]]*)?\]}i, "")
+              .gsub(/\[(?>fork|branch|project|effort|cli|profile|p|deploy|chat|question|\?|fresh|plan|worktree|workitem)(?::[^\]]*)?\]/i, "")
               .gsub(/\[\w+\]/i, "") # Model tags and others
               .gsub(/<@!?\d+>/, "") # Discord mentions
               .strip
