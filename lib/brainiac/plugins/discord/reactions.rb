@@ -31,8 +31,8 @@ module Brainiac
               handle_thinking_stream(agent_key, agent_name, channel_id, message_id, bot_token)
             when "❌"
               handle_cancel(agent_key, agent_name, channel_id, message_id, bot_token)
-            when "🌿"
-              handle_branch(agent_key, agent_name, channel_id, message_id, bot_token)
+            when "🌿", "🪾", "🍴", "🍽️"
+              handle_branch(agent_key, agent_name, channel_id, message_id, bot_token, emoji: emoji_name)
             else
               unless Api::RESERVED_EMOJIS.include?(emoji_name)
                 Thread.new do
@@ -173,7 +173,7 @@ module Brainiac
             end
           end
 
-          # Handle 🌿 reaction — fork the conversation into a new thread.
+          # Handle fork reactions (🌿, 🪾, 🍴, 🍽️) — fork the conversation into a new thread.
           # The reacted message becomes the root of the new branch.
           #
           # Multi-agent coordination: Only ONE agent should handle each fork reaction.
@@ -181,19 +181,19 @@ module Brainiac
           # 1. If the message @mentioned this bot → this agent handles it
           # 2. If the message was authored by this bot → this agent handles it
           # 3. Otherwise, fall back to deterministic selection among all bots
-          def handle_branch(agent_key, agent_name, channel_id, message_id, bot_token)
-            LOG.info "[Discord:#{agent_name}] 🌿 branch reaction on message #{message_id} in channel #{channel_id}" if defined?(LOG)
+          def handle_branch(agent_key, agent_name, channel_id, message_id, bot_token, emoji: "🌿")
+            LOG.info "[Discord:#{agent_name}] #{emoji} fork reaction on message #{message_id} in channel #{channel_id}" if defined?(LOG)
 
             # Fetch source message to determine ownership
             source_message = Api.fetch_message(channel_id, message_id, token: bot_token)
             unless source_message
-              LOG.warn "[Discord:#{agent_name}] 🌿 skipping — couldn't fetch message #{message_id}" if defined?(LOG)
+              LOG.warn "[Discord:#{agent_name}] #{emoji} skipping — couldn't fetch message #{message_id}" if defined?(LOG)
               return
             end
 
             # Check if this agent should handle the fork
             unless should_handle_fork?(agent_key, source_message)
-              LOG.info "[Discord:#{agent_name}] 🌿 skipping — another agent will handle this fork" if defined?(LOG)
+              LOG.info "[Discord:#{agent_name}] #{emoji} skipping — another agent will handle this fork" if defined?(LOG)
               return
             end
 
@@ -215,13 +215,14 @@ module Brainiac
               agent_key: agent_key,
               agent_name: agent_name,
               bot_token: bot_token,
-              project_key: project_key
+              project_key: project_key,
+              fork_emoji: emoji
             )
 
             Api.add_reaction(channel_id, message_id, "⚠️", token: bot_token) unless thread
           end
 
-          # Determine if this agent should handle a 🌿 fork reaction.
+          # Determine if this agent should handle a fork reaction.
           # Only one agent should handle each fork to avoid duplicates.
           def should_handle_fork?(agent_key, source_message)
             bot_user_id = Gateway.bot_user_id(agent_key)&.to_s

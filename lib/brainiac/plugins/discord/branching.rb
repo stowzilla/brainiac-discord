@@ -6,7 +6,7 @@ module Brainiac
       # Conversation branching — fork a conversation into a new thread.
       #
       # Supports two triggers:
-      # - 🌿 reaction on any message → creates thread from that message
+      # - Fork emoji reactions (🌿, 🪾, 🍴, 🍽️) on any message → creates thread from that message
       # - [fork] or [fork:topic] inline tag → creates thread from the tagged message
       #
       # Branched threads start "unbound" — no worktree, no project lock-in.
@@ -31,10 +31,11 @@ module Brainiac
           # @param agent_name [String] Display name of the agent
           # @param bot_token [String] Discord bot token
           # @param project_key [String, nil] Optional project to inherit (not locked until implementation)
+          # @param fork_emoji [String] The emoji that triggered the fork (default: 🌿)
           # @return [Hash, nil] The created thread object, or nil on failure
           def fork_conversation(source_channel_id:, source_message_id:, agent_key:, agent_name:, bot_token:,
                                 source_message: nil, source_is_thread: false, parent_channel_id: nil,
-                                topic: nil, project_key: nil)
+                                topic: nil, project_key: nil, fork_emoji: "🌿")
             # Fetch the source message if not provided
             source_message ||= Api.fetch_message(source_channel_id, source_message_id, token: bot_token)
             unless source_message
@@ -72,7 +73,7 @@ module Brainiac
             )
 
             # React on the source message to indicate branching
-            Thread.new { Api.add_reaction(source_channel_id, source_message_id, "🌿", token: bot_token) }
+            Thread.new { Api.add_reaction(source_channel_id, source_message_id, fork_emoji, token: bot_token) }
 
             # Post an intro message in the new thread
             # Include a reference to the original message when created as a standalone thread

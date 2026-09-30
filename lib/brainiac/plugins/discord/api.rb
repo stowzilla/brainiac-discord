@@ -16,7 +16,10 @@ module Brainiac
         DISCORD_API_BASE = "https://discord.com/api/v10"
 
         # Emojis reserved for brainiac functionality — not treated as feedback
-        RESERVED_EMOJIS = %w[👀 ❌ 🛑 🚫 ⚠️ ⏳ 😶 ❔ ❓ 🧠 🌿].freeze
+        RESERVED_EMOJIS = %w[👀 ❌ 🛑 🚫 ⚠️ ⏳ 😶 ❔ ❓ 🧠 🌿 🪾 🍴 🍽️].freeze
+
+        # All emojis that trigger conversation forking
+        FORK_EMOJIS = %w[🌿 🪾 🍴 🍽️].freeze
 
         class << self
           def request(method, path, token:, body: nil, log_errors: true)
