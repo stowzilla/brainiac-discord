@@ -11,6 +11,16 @@ module Brainiac
       # - 🧠 to stream the full thinking log to a thread
       # - Non-reserved emojis logged as feedback to the agent's persona
       module Reactions
+        # Global deduplication for fork reactions. Tracks which messages have
+        # already been forked to prevent duplicates from multiple agents or
+        # repeated Discord events.
+        #
+        # Key: "channel_id:message_id" -> Time the fork was handled
+        # Entries expire after 60 seconds (well beyond Discord's duplicate window).
+        FORK_DEDUP = {}
+        FORK_DEDUP_MUTEX = Mutex.new
+        FORK_DEDUP_TTL = 60 # seconds
+
         class << self
           def handle(reaction_data, agent_key, bot_token, bot_user_id)
             channel_id = reaction_data["channel_id"]
@@ -176,13 +186,16 @@ module Brainiac
           # Handle fork reactions (🌿, 🪾, 🍴, 🍽️) — fork the conversation into a new thread.
           # The reacted message becomes the root of the new branch.
           #
-          # Multi-agent coordination: Only ONE agent should handle each fork reaction.
-          # We determine ownership by:
-          # 1. If the message @mentioned this bot → this agent handles it
-          # 2. If the message was authored by this bot → this agent handles it
-          # 3. Otherwise, fall back to deterministic selection among all bots
+          # Multi-agent coordination uses a two-phase approach:
+          # 1. Global deduplication — atomic check-and-claim ensures only one agent proceeds
+          # 2. Ownership check — determines which specific agent should handle it
+          #
+          # This prevents both the race condition (multiple agents passing ownership check
+          # simultaneously) and duplicate events (Discord sending the same reaction multiple times).
           def handle_branch(agent_key, agent_name, channel_id, message_id, bot_token, emoji: "🌿")
             LOG.info "[Discord:#{agent_name}] #{emoji} fork reaction on message #{message_id} in channel #{channel_id}" if defined?(LOG)
+
+            dedup_key = "#{channel_id}:#{message_id}"
 
             # Fetch source message to determine ownership
             source_message = Api.fetch_message(channel_id, message_id, token: bot_token)
@@ -191,11 +204,19 @@ module Brainiac
               return
             end
 
-            # Check if this agent should handle the fork
+            # Check if this agent should handle the fork (based on mentions/authorship/fallback)
             unless should_handle_fork?(agent_key, source_message)
-              LOG.info "[Discord:#{agent_name}] #{emoji} skipping — another agent will handle this fork" if defined?(LOG)
+              LOG.info "[Discord:#{agent_name}] #{emoji} skipping — another agent should handle this fork" if defined?(LOG)
               return
             end
+
+            # Atomic claim — only one agent gets past this point
+            unless claim_fork!(dedup_key, agent_key)
+              LOG.info "[Discord:#{agent_name}] #{emoji} skipping — fork already claimed by another process" if defined?(LOG)
+              return
+            end
+
+            LOG.info "[Discord:#{agent_name}] #{emoji} handling fork for message #{message_id}" if defined?(LOG)
 
             # Check if we're in a thread — get parent channel for project resolution
             channel_info = Api.fetch_channel_info(channel_id, token: bot_token)
@@ -220,6 +241,27 @@ module Brainiac
             )
 
             Api.add_reaction(channel_id, message_id, "⚠️", token: bot_token) unless thread
+          end
+
+          # Atomically claim a fork operation. Returns true if this caller wins,
+          # false if already claimed. Cleans up expired entries while holding the lock.
+          def claim_fork!(dedup_key, agent_key)
+            FORK_DEDUP_MUTEX.synchronize do
+              now = Time.now
+
+              # Clean up expired entries
+              FORK_DEDUP.delete_if { |_, claimed_at| now - claimed_at > FORK_DEDUP_TTL }
+
+              # Check if already claimed
+              if FORK_DEDUP.key?(dedup_key)
+                return false
+              end
+
+              # Claim it
+              FORK_DEDUP[dedup_key] = now
+              LOG.debug "[Discord] Fork claimed: #{dedup_key} by #{agent_key}" if defined?(LOG) && LOG.respond_to?(:debug)
+              true
+            end
           end
 
           # Determine if this agent should handle a fork reaction.
