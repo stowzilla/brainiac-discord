@@ -1312,6 +1312,13 @@ module Brainiac
                 exit_status: exit_status, profile: profile
               )
 
+              # Capture and store the CLI session id for future --resume-id dispatches.
+              # This allows resuming the specific session for this worktree rather than
+              # whichever session was globally last. The session id gets stored on the
+              # work item (keyed by agent_cli and worktree), and cli_session_id_for will
+              # retrieve it when resolve_resume is called.
+              capture_discord_session_id(resolved: resolved, work_dir: work_dir, agent_name: agent_name)
+
               if exit_status.signaled? || session_cancelled
                 handle_cancelled(exit_status, session_cancelled, agent_name, message_id,
                                  response_file, meta_file, prompt_file, attachment_paths)
@@ -1378,6 +1385,25 @@ module Brainiac
             )
           rescue StandardError => e
             LOG.warn "[Discord:#{agent_name}] Failed to archive session history: #{e.message}" if defined?(LOG)
+          end
+
+          # Capture and store the CLI session id after a Discord dispatch completes.
+          #
+          # Discord threads get worktrees registered as work items (via register_work_item
+          # in create_thread_worktree), so we can use the core's capture_cli_session_id
+          # to store the session id on the work item. On future dispatches, resolve_resume
+          # calls cli_session_id_for which retrieves this stored id, enabling accurate
+          # --resume-id targeting instead of resuming whichever session was globally last.
+          #
+          # Fully best-effort: capture_cli_session_id already logs failures internally,
+          # but we guard here too so a session capture failure never breaks Discord's flow.
+          def capture_discord_session_id(resolved:, work_dir:, agent_name:)
+            return unless defined?(capture_cli_session_id)
+            return unless resolved && work_dir
+
+            capture_cli_session_id(resolved: resolved, chdir: work_dir)
+          rescue StandardError => e
+            LOG.warn "[Discord:#{agent_name}] Failed to capture session id: #{e.message}" if defined?(LOG)
           end
 
           def handle_completed(exit_status:, agent_name:, agent_config_name:, channel_id:, message_id:,
