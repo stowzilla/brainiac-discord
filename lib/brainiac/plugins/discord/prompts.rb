@@ -11,6 +11,12 @@ module Brainiac
         CHANNEL = <<~PROMPT
           ## Discord Channel Rules
 
+          ### Current Message Priority
+          The message in "**Message:**" above is your PRIMARY task. Everything else is context.
+          - Original thread topic: reference only — don't answer questions that weren't asked
+          - Channel history: context only — helps you understand the conversation flow
+          - Your job: respond to the current message, not summarize the thread
+
           ### Mentions
           Discord does NOT support plain-text @mentions. Writing `@Galen` renders as plain text.
           To actually mention someone, use the `<@USER_ID>` format. Here are the known IDs:
