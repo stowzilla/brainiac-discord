@@ -331,6 +331,43 @@ class TestDiscordGatewayReconnect < Minitest::Test
     end
     refute slept, "should not wait when identifies remain"
   end
+
+  # --- MESSAGE_UPDATE freshness guard (stale_edit?) ---------------------------
+
+  def test_stale_edit_true_for_embed_refresh_days_later
+    created = "2026-10-05T04:10:00.000000+00:00"
+    # Discord re-stamps edited_timestamp when it unfurls a link embed days later.
+    edited = "2026-10-09T18:21:00.000000+00:00"
+    assert Gateway.send(:stale_edit?, created, edited),
+           "an edit landing days after creation should be treated as a stale embed refresh"
+  end
+
+  def test_stale_edit_false_for_quick_human_edit
+    created = "2026-10-05T04:10:00.000000+00:00"
+    edited  = "2026-10-05T04:10:30.000000+00:00" # 30s later — a typo fix
+    refute Gateway.send(:stale_edit?, created, edited),
+           "an edit seconds after creation is a real conversational edit"
+  end
+
+  def test_stale_edit_boundary_is_within_window
+    created = "2026-10-05T04:10:00.000000+00:00"
+    # Exactly at the window edge should still count as fresh (not stale).
+    edited = (Time.iso8601(created) + Brainiac::Plugins::Discord::Gateway::EDIT_FRESHNESS_WINDOW).iso8601
+    refute Gateway.send(:stale_edit?, created, edited),
+           "an edit exactly at the freshness window should not be considered stale"
+  end
+
+  def test_stale_edit_fails_open_on_nil_timestamps
+    refute Gateway.send(:stale_edit?, nil, "2026-10-09T18:21:00+00:00"),
+           "missing creation timestamp should fail open (treat as real edit)"
+    refute Gateway.send(:stale_edit?, "2026-10-05T04:10:00+00:00", nil),
+           "missing edit timestamp should fail open (treat as real edit)"
+  end
+
+  def test_stale_edit_fails_open_on_unparseable_timestamps
+    refute Gateway.send(:stale_edit?, "not-a-timestamp", "also-bad"),
+           "unparseable timestamps should fail open so genuine edits are never swallowed"
+  end
 end
 
 class TestDiscordApi < Minitest::Test

@@ -2,6 +2,7 @@
 
 require "websocket-client-simple"
 require "websocket"
+require "time"
 
 module Brainiac
   module Plugins
@@ -22,6 +23,12 @@ module Brainiac
         BACKOFF_BASE = 5
         BACKOFF_HANDSHAKE_BASE = 30
         BACKOFF_CAP = 300
+
+        # How long after a message is posted an edit still counts as a real,
+        # conversational edit worth re-dispatching on. Edits that land outside
+        # this window are treated as server-side embed refreshes (Discord
+        # restamping edited_timestamp when it unfurls a link), not human intent.
+        EDIT_FRESHNESS_WINDOW = 300 # seconds (5 minutes)
 
         # Per-bot state: { agent_key => { token:, user_id:, status:, thread: } }
         @bots = {}
@@ -376,7 +383,16 @@ module Brainiac
                 LOG.error "[Discord:#{agent_display}] Error handling message: #{e.message}\n#{e.backtrace.first(3).join("\n")}" if defined?(LOG)
               end
             when "MESSAGE_UPDATE"
-              if data["edited_timestamp"]
+              # Discord emits MESSAGE_UPDATE for genuine human edits AND for
+              # server-side embed (un)furls on existing messages — e.g. lazily
+              # generating a link preview days after the message was posted. Both
+              # stamp edited_timestamp, so re-dispatching on every update means a
+              # bare URL in an old agent-mentioning message can silently wake the
+              # agent long after the fact. Only treat an update as actionable when
+              # the edit happened close to the message's own creation time, which
+              # is what a real conversational edit (typo fix, afterthought) looks
+              # like. See message.rb for the shared dispatch path.
+              if data["edited_timestamp"] && !stale_edit?(data["timestamp"], data["edited_timestamp"])
                 Thread.new do
                   Message.handle(data, agent_key, bot_token, bot_user_id)
                 rescue StandardError => e
@@ -384,6 +400,9 @@ module Brainiac
                     LOG.error "[Discord:#{agent_display}] Error handling message update: #{e.message}\n#{e.backtrace.first(3).join("\n")}"
                   end
                 end
+              elsif data["edited_timestamp"] && defined?(LOG)
+                LOG.info "[Discord:#{agent_display}] Ignoring stale MESSAGE_UPDATE " \
+                         "(likely embed refresh) on message #{data["id"]}"
               end
             when "MESSAGE_REACTION_ADD"
               Thread.new do
@@ -414,6 +433,25 @@ module Brainiac
             end
 
             bot_user_id
+          end
+
+          # True when a MESSAGE_UPDATE's edit happened long enough after the
+          # message was created that it's almost certainly a server-side embed
+          # refresh rather than a human edit. Guards against spurious agent
+          # dispatches from Discord lazily unfurling link previews on old
+          # messages that mention the bot.
+          #
+          # Fails open (returns false → treat as a real edit) when either
+          # timestamp is missing or unparseable, so a parsing hiccup never
+          # silently swallows a genuine edit.
+          def stale_edit?(created_at, edited_at)
+            return false if created_at.nil? || edited_at.nil?
+
+            created = Time.iso8601(created_at.to_s)
+            edited  = Time.iso8601(edited_at.to_s)
+            (edited - created) > EDIT_FRESHNESS_WINDOW
+          rescue ArgumentError
+            false
           end
 
           def mark_bot_ready(agent_key, agent_display, bot_user_id, data)
