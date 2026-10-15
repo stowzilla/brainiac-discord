@@ -147,6 +147,44 @@ class TestDiscordPersistOverrides < Minitest::Test
     Object.define_method(:detect_cli_provider) { |text: "", tags: []| nil } # rubocop:disable Lint/UnusedBlockArgument
   end
 
+  def test_persist_overrides_clears_stale_model_on_provider_switch
+    map = { "galen:threadS" => { "worktree" => "/tmp/wt", "cli_provider" => "kiro", "model" => "claude-opus-4.5", "effort" => "high" } }
+    Brainiac::Plugins::Discord::Config.save_thread_map(map)
+
+    Object.define_method(:detect_cli_provider) { |text: "", tags: []| (m = text.match(/\[cli:(\w+)\]/i)) ? m[1].downcase : nil } # rubocop:disable Lint/UnusedBlockArgument
+
+    Brainiac::Plugins::Discord::Message.send(
+      :persist_overrides, "galen:threadS", "[cli:claude] hello", nil,
+      cli_provider: "claude", model: nil, effort: "high",
+      prev_cli_provider: "kiro", prev_model: "claude-opus-4.5", prev_effort: "high"
+    )
+
+    updated = Brainiac::Plugins::Discord::Config.load_thread_map
+    assert_equal "claude", updated["galen:threadS"]["cli_provider"]
+    assert_nil updated["galen:threadS"]["model"]
+    assert_equal "high", updated["galen:threadS"]["effort"]
+  ensure
+    Object.define_method(:detect_cli_provider) { |text: "", tags: []| nil } # rubocop:disable Lint/UnusedBlockArgument
+  end
+
+  def test_resolve_overrides_drops_thread_model_on_provider_switch
+    Object.define_method(:detect_cli_provider) { |text: "", tags: []| (m = text.match(/\[cli:(\w+)\]/i)) ? m[1].downcase : nil } # rubocop:disable Lint/UnusedBlockArgument
+
+    model, effort, cli = Brainiac::Plugins::Discord::Message.send(
+      :resolve_overrides, "[cli:claude] hi", nil, "claude-opus-4.5", "high", "kiro"
+    )
+    assert_nil model
+    assert_equal "high", effort
+    assert_equal "claude", cli
+
+    model, = Brainiac::Plugins::Discord::Message.send(
+      :resolve_overrides, "[cli:kiro] hi", nil, "claude-opus-4.5", nil, "kiro"
+    )
+    assert_equal "claude-opus-4.5", model
+  ensure
+    Object.define_method(:detect_cli_provider) { |text: "", tags: []| nil } # rubocop:disable Lint/UnusedBlockArgument
+  end
+
   def test_persist_overrides_updates_thread_map_model
     map = { "galen:thread456" => { "worktree" => "/tmp/wt", "cli_provider" => nil, "model" => nil, "effort" => nil } }
     Brainiac::Plugins::Discord::Config.save_thread_map(map)

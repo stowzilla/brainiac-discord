@@ -714,8 +714,15 @@ module Brainiac
           end
 
           def resolve_overrides(clean_content, project_config, thread_model, thread_effort, thread_cli_provider)
-            cli_provider = detect_cli_provider(text: clean_content) || thread_cli_provider
+            inline_cli = detect_cli_provider(text: clean_content)
+            cli_provider = inline_cli || thread_cli_provider
             has_explicit_model = explicit_model_tag?(clean_content, project_config, cli_provider_override: cli_provider)
+
+            # The stored model is a resolved ID from the previous provider's model map, so it
+            # means nothing to a different provider. Drop it on a switch and fall back to the
+            # new provider's default (unless this message also carries a model tag).
+            # Effort is kept: it's generic and gets clamped per provider anyway.
+            thread_model = nil if provider_switched?(inline_cli, thread_cli_provider)
             has_explicit_effort = clean_content.match?(/\[effort:\w+\]/i)
 
             model = if has_explicit_model
@@ -735,6 +742,10 @@ module Brainiac
                      end
 
             [model, effort, cli_provider]
+          end
+
+          def provider_switched?(inline_cli, prev_cli_provider)
+            !inline_cli.nil? && inline_cli != prev_cli_provider
           end
 
           # Persist inline overrides to the thread map (and work item map if a work item exists).
@@ -761,7 +772,8 @@ module Brainiac
               entry = map[thread_map_key]
               if entry
                 entry["cli_provider"] = cli_provider if inline_cli
-                entry["model"] = model if inline_model
+                # Clear the old provider's model on a switch so it can't resurface later
+                entry["model"] = inline_model if inline_model || provider_switched?(inline_cli, prev_cli_provider)
                 entry["effort"] = effort if inline_effort
                 Config.save_thread_map(map)
               end
