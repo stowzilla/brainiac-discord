@@ -44,7 +44,7 @@ module Brainiac
               return
             end
 
-            token ||= prompt_for_token(display_name)
+            token ||= prompt_for_token(display_name, entry["open_browser"])
             return unless token
 
             me = request(:get, "/users/@me", token)
@@ -63,14 +63,16 @@ module Brainiac
             puts "  [Discord] ✓ Saved DISCORD_BOT_TOKEN and user_mappings[#{display_name}] = #{me["id"]}"
             puts "  [Discord] Invite #{display_name} to your server:"
             puts "    #{invite_url(app["id"] || me["id"])}"
+            open_url(invite_url(app["id"] || me["id"])) if entry["open_browser"]
           end
 
           private
 
-          def prompt_for_token(display_name)
+          def prompt_for_token(display_name, browser)
             return nil unless $stdin.tty?
 
             puts ""
+            puts "  [Discord] Opening the developer portal in your browser…" if browser && open_url(PORTAL_URL)
             puts "  [Discord] Create a bot for #{display_name} (the only manual step):"
             puts "    1. #{PORTAL_URL} → New Application → name it \"#{display_name}\""
             puts "    2. Bot tab → Reset Token → copy it"
@@ -79,6 +81,17 @@ module Brainiac
             token = read_secret
             puts ""
             token.nil? || token.empty? ? nil : token
+          end
+
+          # Best-effort: launch the default browser without blocking on it.
+          # Returns false when no launcher is available (headless, SSH, ...).
+          def open_url(url)
+            launcher = RUBY_PLATFORM.include?("darwin") ? "open" : "xdg-open"
+            pid = Process.spawn(launcher, url, %i[out err] => File::NULL)
+            Process.detach(pid)
+            true
+          rescue SystemCallError
+            false
           end
 
           def read_secret
