@@ -44,7 +44,8 @@ module Brainiac
               return
             end
 
-            token ||= prompt_for_token(display_name, entry["open_browser"])
+            existing_id = discord_config.dig("user_mappings", display_name)
+            token ||= prompt_for_token(display_name, entry["open_browser"], existing_id)
             return unless token
 
             me = request(:get, "/users/@me", token)
@@ -68,15 +69,24 @@ module Brainiac
 
           private
 
-          def prompt_for_token(display_name, browser)
+          # With a user_mappings entry the app already exists (the token was lost
+          # or rotated), so send the user straight to its Bot tab instead of
+          # "New Application". A bot's user ID is its application ID.
+          def prompt_for_token(display_name, browser, existing_id = nil)
             return nil unless $stdin.tty?
 
+            url = existing_id ? "#{PORTAL_URL}/#{existing_id}/bot" : PORTAL_URL
             puts ""
-            puts "  [Discord] Opening the developer portal in your browser…" if browser && open_url(PORTAL_URL)
-            puts "  [Discord] Create a bot for #{display_name} (the only manual step):"
-            puts "    1. #{PORTAL_URL} → New Application → name it \"#{display_name}\""
-            puts "    2. Bot tab → Reset Token → copy it"
-            puts "  Name, avatar, description and Message Content intent are set automatically."
+            puts "  [Discord] Opening the developer portal in your browser…" if browser && open_url(url)
+            if existing_id
+              puts "  [Discord] #{display_name} already has a Discord app, but its bot token isn't saved."
+              puts "    #{url} → Reset Token → copy it"
+            else
+              puts "  [Discord] Create a bot for #{display_name} (the only manual step):"
+              puts "    1. #{PORTAL_URL} → New Application → name it \"#{display_name}\""
+              puts "    2. Bot tab → Reset Token → copy it"
+              puts "  Name, avatar, description and Message Content intent are set automatically."
+            end
             print "  Bot token (blank to skip): "
             token = read_secret
             puts ""
