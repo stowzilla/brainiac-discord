@@ -65,6 +65,21 @@ module Brainiac
             end
           end
 
+          # `agent create` writes the agent before the Discord step saves its token,
+          # so the server can see the agent first and only get the token here.
+          Brainiac.on(:agent_updated) do |ctx|
+            agent_key = ctx[:agent_key]
+            token = ((ctx[:entry].is_a?(Hash) && ctx[:entry]["env"]) || {})["DISCORD_BOT_TOKEN"]
+            next if token == Gateway.bot_token(agent_key)
+
+            Config.reload! # pick up the user_mappings entry the setup step wrote
+            Gateway.stop_bot!(agent_key)
+            if token
+              Gateway.start_bot!(agent_key, token)
+              LOG.info "[Discord] Started bot for #{ctx[:display_name]} (token added/changed)" if defined?(LOG)
+            end
+          end
+
           Brainiac.on(:agent_removed) do |ctx|
             agent_key = ctx[:agent_key]
 
