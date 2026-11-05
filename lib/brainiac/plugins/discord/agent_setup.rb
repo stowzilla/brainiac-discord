@@ -41,6 +41,7 @@ module Brainiac
 
             if token && discord_config.dig("user_mappings", display_name)
               puts "  [Discord] ✓ #{display_name} already has a bot (skipping)"
+              sync_installed_apps(token)
               return
             end
 
@@ -65,9 +66,60 @@ module Brainiac
             puts "  [Discord] Invite #{display_name} to your server:"
             puts "    #{invite_url(app["id"] || me["id"])}"
             open_url(invite_url(app["id"] || me["id"])) if entry["open_browser"]
+
+            sync_installed_apps(token)
           end
 
           private
+
+          # Backfill user_mappings for every OTHER app/bot already installed in the
+          # guild — the ones this brainiac instance didn't create. Without this an
+          # agent only knows about bots it provisioned itself, so a tag like
+          # "@Judge Dredd" for an app from another instance renders as plain text
+          # with no ID to route to. Sweeping the guild's members (bots included)
+          # gives each installed app a name→id mapping so the mention roster and
+          # tag detection at least know it exists.
+          #
+          # Best-effort and non-fatal: needs the SERVER MEMBERS intent and a
+          # guild_id in discord.json. Only adds names not already mapped; never
+          # overwrites a hand-set entry.
+          def sync_installed_apps(token)
+            guild_id = discord_config["guild_id"]
+            return unless guild_id
+
+            bots = fetch_guild_bots(guild_id, token)
+            return if bots.nil?
+
+            existing = discord_config["user_mappings"] || {}
+            added = bots.reject { |name, _id| existing.key?(name) }
+            if added.empty?
+              puts "  [Discord] ✓ Installed apps already mapped (#{bots.size} bot(s) in server)"
+              return
+            end
+
+            added.each { |name, id| save_user_mapping(name, id) }
+            puts "  [Discord] ✓ Discovered #{added.size} installed app(s): #{added.keys.join(", ")}"
+          end
+
+          # Returns { bot_display_name => user_id } for every bot in the guild, or
+          # nil when the member list can't be fetched (missing intent, bad token,
+          # no permission). Humans are skipped — only user["bot"] members count.
+          def fetch_guild_bots(guild_id, token)
+            members = request(:get, "/guilds/#{guild_id}/members?limit=1000", token)
+            unless members.is_a?(Array)
+              puts "  [Discord] ⚠ Couldn't list installed apps — enable the SERVER MEMBERS intent (Bot tab → Privileged Gateway Intents)"
+              return nil
+            end
+
+            members.each_with_object({}) do |member, acc|
+              user = member["user"]
+              next unless user && user["bot"]
+
+              name = user["global_name"] || user["username"]
+              id = user["id"]
+              acc[name] = id if name && id
+            end
+          end
 
           # With a user_mappings entry the app already exists (the token was lost
           # or rotated), so send the user straight to its Bot tab instead of
