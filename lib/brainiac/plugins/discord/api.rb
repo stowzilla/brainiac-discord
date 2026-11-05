@@ -76,6 +76,9 @@ module Brainiac
               content = msg["content"]&.strip || ""
               next if content.empty?
 
+              # Tag bot authors so intent can see agents this machine doesn't run.
+              # Webhook posts (GitHub, CI) are bots too, but they aren't agents.
+              author = "#{author} [bot]" if msg.dig("author", "bot") && !msg["webhook_id"]
               "#{author}: #{content}"
             end
 

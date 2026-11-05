@@ -179,6 +179,8 @@ module Brainiac
           # in this message. When a user @mentions someone specific, thread participants
           # who weren't mentioned should stay silent — no intent check needed.
           def other_agent_mentioned?(mentions, content, agent_key)
+            return true if remote_bot_mentioned?(mentions)
+
             mention_roles = []
 
             Gateway.each_bot do |key, info|
@@ -204,6 +206,13 @@ module Brainiac
             end
 
             false
+          end
+
+          # Any bot in the mentions array counts as another agent, even one this machine
+          # has never heard of (agents run on different machines, each with its own roster).
+          # Callers only get here when this bot wasn't mentioned, so self is never in the list.
+          def remote_bot_mentioned?(mentions)
+            mentions.any? { |m| m["bot"] }
           end
 
           def validate_cross_agent_dispatch(sender_agent_key, agent_key, mentioned, content, channel_id)
@@ -262,15 +271,17 @@ module Brainiac
           def should_stand_down?(in_own_thread, mentioned, is_reply_to_bot, is_bot, agent_key, mentions, content)
             return false unless in_own_thread && !mentioned && !is_reply_to_bot && !is_bot
 
-            other_bot_mentioned = false
-            Gateway.each_bot do |key, info|
-              next if key == agent_key
-              next unless info[:user_id]
-              next unless mentions.any? { |m| m["id"].to_s == info[:user_id].to_s } ||
-                          content.match?(/<@!?#{Regexp.escape(info[:user_id].to_s)}>/)
+            other_bot_mentioned = remote_bot_mentioned?(mentions)
+            unless other_bot_mentioned
+              Gateway.each_bot do |key, info|
+                next if key == agent_key
+                next unless info[:user_id]
+                next unless mentions.any? { |m| m["id"].to_s == info[:user_id].to_s } ||
+                            content.match?(/<@!?#{Regexp.escape(info[:user_id].to_s)}>/)
 
-              other_bot_mentioned = true
-              break
+                other_bot_mentioned = true
+                break
+              end
             end
 
             unless other_bot_mentioned
@@ -311,39 +322,18 @@ module Brainiac
 
           # Check if this agent is the only bot in the thread (1-on-1 with the human).
           # Uses the already-fetched channel_history to avoid extra API calls.
-          # channel_history is a formatted string ("Username: message\n...") from fetch_channel_history.
-          # Returns true when no other agent bots have posted in the thread history,
-          # meaning it's safe to skip intent checking (the message is obviously for us).
+          # channel_history is a formatted string ("Username: message\n...") from fetch_channel_history,
+          # with bot authors tagged "Username [bot]: ". Any bot other than us counts, including
+          # agents running on another machine that this one doesn't know about.
           def solo_in_thread?(channel_history, agent_key)
             return true unless channel_history.is_a?(String) && !channel_history.empty?
 
-            other_bot_usernames = []
-            Gateway.each_bot do |key, info|
-              next if key == agent_key
-              next unless info[:username]
+            own_username = nil
+            Gateway.each_bot { |key, info| own_username = info[:username] if key == agent_key }
 
-              other_bot_usernames << info[:username]
-            end
-
-            # Also check user_mappings for remote agent bots not connected locally
-            agent_keys = []
-            Gateway.each_bot { |key, _| agent_keys << key }
-            Config.user_mappings.each_key do |name|
-              normalized = name.downcase.gsub(/[^a-z0-9]/, "-")
-              next if normalized == agent_key
-              next if agent_keys.include?(normalized)
-
-              # Only include names that look like agent bots (present in agent registry)
-              next unless defined?(AGENT_REGISTRY) && AGENT_REGISTRY.key?(normalized)
-
-              other_bot_usernames << name
-            end
-
-            return true if other_bot_usernames.empty?
-
-            history_lines = channel_history.split("\n")
-            history_lines.none? do |line|
-              other_bot_usernames.any? { |username| line.start_with?("#{username}: ") }
+            channel_history.split("\n").none? do |line|
+              author = line[/\A(.+?) \[bot\]: /, 1]
+              author && author != own_username
             end
           end
 
