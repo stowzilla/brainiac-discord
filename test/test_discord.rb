@@ -537,7 +537,7 @@ class TestDiscordMessage < Minitest::Test
   end
 
   def test_solo_in_thread_returns_true_when_no_other_bots_posted
-    history = "Andy: hello\nGalen: galen response"
+    history = "Andy: hello\nGalen [bot]: galen response"
 
     bots = { "galen" => { user_id: "222", username: "Galen" }, "effie" => { user_id: "333", username: "Effie" } }
     original_bots = Brainiac::Plugins::Discord::Gateway.instance_variable_get(:@bots)
@@ -549,13 +549,25 @@ class TestDiscordMessage < Minitest::Test
   end
 
   def test_solo_in_thread_returns_false_when_other_bot_posted
-    history = "Andy: hello\nGalen: galen response\nEffie: effie response"
+    history = "Andy: hello\nGalen [bot]: galen response\nEffie [bot]: effie response"
 
     bots = { "galen" => { user_id: "222", username: "Galen" }, "effie" => { user_id: "333", username: "Effie" } }
     original_bots = Brainiac::Plugins::Discord::Gateway.instance_variable_get(:@bots)
     Brainiac::Plugins::Discord::Gateway.instance_variable_set(:@bots, bots)
     result = Brainiac::Plugins::Discord::Message.send(:solo_in_thread?, history, "galen")
     refute result, "Should return false when another agent bot posted in thread"
+  ensure
+    Brainiac::Plugins::Discord::Gateway.instance_variable_set(:@bots, original_bots)
+  end
+
+  def test_solo_in_thread_returns_false_when_remote_bot_posted
+    history = "Andy: hello\nGalen [bot]: galen response\nChad [bot]: chad response"
+
+    bots = { "galen" => { user_id: "222", username: "Galen" } }
+    original_bots = Brainiac::Plugins::Discord::Gateway.instance_variable_get(:@bots)
+    Brainiac::Plugins::Discord::Gateway.instance_variable_set(:@bots, bots)
+    result = Brainiac::Plugins::Discord::Message.send(:solo_in_thread?, history, "galen")
+    refute result, "A bot from another machine posting means the thread isn't solo"
   ensure
     Brainiac::Plugins::Discord::Gateway.instance_variable_set(:@bots, original_bots)
   end
@@ -649,6 +661,20 @@ class TestOtherAgentMentioned < Minitest::Test
     assert result, "Effie should detect Adam's mention in content and stand down"
   ensure
     Brainiac::Plugins::Discord::Config.instance_variable_set(:@config, original_config)
+  end
+
+  def test_returns_true_when_unknown_bot_mentioned
+    mentions = [{ "id" => "1567915464745812078", "bot" => true }]
+    content = "<@1567915464745812078> what do you think?"
+    result = Brainiac::Plugins::Discord::Message.send(:other_agent_mentioned?, mentions, content, "effie")
+    assert result, "A bot this machine doesn't run is still another agent"
+  end
+
+  def test_should_stand_down_in_own_thread_when_unknown_bot_mentioned
+    mentions = [{ "id" => "1567915464745812078", "bot" => true }]
+    content = "<@1567915464745812078> please work with Galen"
+    result = Brainiac::Plugins::Discord::Message.send(:should_stand_down?, true, false, false, false, "galen", mentions, content)
+    assert result, "Thread owner should stand down when a human tags a remote agent"
   end
 
   def test_returns_false_when_unmapped_user_mentioned
