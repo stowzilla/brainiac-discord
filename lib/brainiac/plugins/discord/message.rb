@@ -646,6 +646,11 @@ module Brainiac
               project_context: project_context, response_file: response_file, card_id: card_id,
               brain_context: brain_context, agent_name: agent_name, supersede_key: supersede_key
             )
+            # Discord spawns its own process, so fill core's per-provider Subagents slot here
+            # (run_agent does it for every other channel).
+            if defined?(fill_subagent_prompt)
+              prompt = fill_subagent_prompt(prompt, resolved, model: model || resolved["agent_model"])
+            end
 
             prompt_file = File.join(response_dir, "discord-prompt-#{timestamp}-#{agent_key}-#{message_id}.md")
             File.write(prompt_file, prompt)
