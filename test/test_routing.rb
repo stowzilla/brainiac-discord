@@ -232,20 +232,35 @@ class TestDiscordRouting < Minitest::Test
     assert_equal ["discord:galen:thread1"], FakeHub.relays.last[:keys]
   end
 
-  def test_claim_is_sent_once_and_release_forgets_it
+  def test_claim_is_sent_once
     Routing.claim_thread("galen", "thread1")
     Routing.claim_thread("galen", "thread1")
     assert_equal [[:assign, ["discord:galen:thread1"], "main", false]], FakeHub.calls
-
-    FakeHub.owners["discord:galen:thread1"] = "main"
-    Routing.release_thread("galen", "thread1")
-    assert_equal [:release, "discord:galen:thread1"], FakeHub.calls.last
   end
 
-  def test_release_leaves_a_thread_that_moved_to_another_machine
-    FakeHub.owners["discord:galen:thread1"] = "mini"
-    Routing.release_thread("galen", "thread1")
-    refute_includes FakeHub.calls.map(&:first), :release
+  # Everything after the routing decision, on a machine with no hub: the path
+  # every message takes on a single machine.
+  def test_accept_without_a_hub_reaches_dispatch
+    FakeHub.enabled = false
+    dispatched = nil
+    message = { "id" => "msg1", "channel_id" => "chan1", "content" => "<@111> fix the thing",
+                "author" => { "id" => "397928984232591361", "username" => "andy" } }
+
+    Discord::Api.stub(:fetch_channel_info, { "type" => 0 }) do
+      Discord::Api.stub(:fetch_channel_history, "andy: earlier") do
+        Discord::Message.stub(:route_dispatch, ->(**args) { dispatched = args }) do
+          Discord::Message.accept(message, "galen", "Bot_galen", "111", mentioned: true, is_reply_to_bot: false,
+                                                                        in_own_thread: false)
+        end
+      end
+    end
+
+    assert_equal "fix the thing", dispatched[:clean_content]
+    assert_equal "andy", dispatched[:discord_user]
+    assert_equal "chan1", dispatched[:parent_channel_id]
+    assert dispatched[:directly_addressed]
+    refute dispatched[:is_thread]
+    assert_empty FakeHub.calls
   end
 
   def test_moved_thread_starts_from_the_branch_the_old_machine_pushed

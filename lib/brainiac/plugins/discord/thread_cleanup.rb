@@ -117,7 +117,6 @@ module Brainiac
               map.delete(thread_map_key)
               Config.save_thread_map(map)
             end
-            Routing.release_thread(*thread_map_key.split(":", 2))
           end
         end
       end

@@ -145,6 +145,11 @@ module Brainiac
           # Tell the hub this machine holds a thread's worktree, so follow-ups come
           # back here whichever machine is the leader. Never takes a thread that
           # already has an owner unless overwrite is set.
+          #
+          # Ownership outlives the worktree on purpose. Discord archives idle
+          # threads by itself and cleanup then removes a clean worktree; the next
+          # message should still come back to the machine that was chosen. The
+          # hub expires an assignment that goes unused.
           def claim_thread(agent_key, thread_id, overwrite: false)
             return unless active? && thread_id
 
@@ -154,17 +159,6 @@ module Brainiac
             @mutex.synchronize { @claimed[key] = true }
             name = machine
             in_background { Brainiac::Hub.assign([key], name, overwrite: overwrite) }
-          end
-
-          # The thread's worktree is gone: let the next message pick a machine
-          # afresh. A thread that has since moved to another machine stays theirs.
-          def release_thread(agent_key, thread_id)
-            return unless active? && thread_id
-
-            key = thread_key(agent_key, thread_id)
-            @mutex.synchronize { @claimed.delete(key) }
-            name = machine
-            in_background { Brainiac::Hub.release(key) if Brainiac::Hub.owner(key) == name }
           end
 
           def reset!
