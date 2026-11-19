@@ -34,6 +34,10 @@ module Brainiac
         @bots = {}
         @bots_mutex = Mutex.new
         @all_ready_logged = false
+        # Bot identities learned without a gateway. A multi-machine standby holds
+        # no connections, so it never sees READY; the leader sends each bot's id
+        # and username along with the work it hands over.
+        @identities = {}
 
         class << self
           attr_reader :bots, :bots_mutex
@@ -54,9 +58,26 @@ module Brainiac
             @bots_mutex.synchronize { @bots.dig(agent_key, :token) }
           end
 
+          # Get a bot's token whether or not its gateway runs on this machine.
+          def token_for(agent_key)
+            bot_token(agent_key) || discord_bot_tokens[agent_key]
+          end
+
           # Get a bot's user_id.
           def bot_user_id(agent_key)
-            @bots_mutex.synchronize { @bots.dig(agent_key, :user_id) }
+            @bots_mutex.synchronize { @bots.dig(agent_key, :user_id) || @identities.dig(agent_key, :user_id) }
+          end
+
+          # Get a bot's Discord username.
+          def bot_username(agent_key)
+            @bots_mutex.synchronize { @bots.dig(agent_key, :username) || @identities.dig(agent_key, :username) }
+          end
+
+          # Record a bot's identity as reported by the machine that holds its gateway.
+          def remember_identity(agent_key, user_id:, username: nil)
+            return unless user_id
+
+            @bots_mutex.synchronize { @identities[agent_key] = { user_id: user_id.to_s, username: username } }
           end
 
           # Collect all agent Discord bot tokens from the registry.

@@ -22,7 +22,11 @@ module Brainiac
         FORK_DEDUP_TTL = 60 # seconds
 
         class << self
-          def handle(reaction_data, agent_key, bot_token, bot_user_id)
+          SESSION_EMOJIS = ["❔", "❓", "🧠", "❌"].freeze
+
+          # relayed: the leader machine forwarded this reaction because the session
+          # it is about runs here.
+          def handle(reaction_data, agent_key, bot_token, bot_user_id, relayed: false)
             channel_id = reaction_data["channel_id"]
             message_id = reaction_data["message_id"]
             user_id = reaction_data["user_id"]
@@ -33,6 +37,13 @@ module Brainiac
 
             # Ignore reactions from bots (including self)
             return if user_id == bot_user_id
+
+            # Multi-machine: these act on a running session, which may be on the
+            # machine this message was handed to.
+            if !relayed && SESSION_EMOJIS.include?(emoji_name) &&
+               Routing.hand_off_reaction(agent_key: agent_key, bot_user_id: bot_user_id, reaction: reaction_data)
+              return
+            end
 
             case emoji_name
             when "❔", "❓"

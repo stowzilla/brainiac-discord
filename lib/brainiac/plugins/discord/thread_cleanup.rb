@@ -14,11 +14,17 @@ module Brainiac
       # the thread map entry.
       module ThreadCleanup
         class << self
-          def handle_archive(data, agent_key, agent_display)
+          # relayed: the leader machine forwarded the event because this machine
+          # holds the thread's worktree.
+          def handle_archive(data, agent_key, agent_display, relayed: false)
             thread_id = data["id"]
             return unless thread_id
 
             thread_map_key = "#{agent_key}:#{thread_id}"
+
+            # Multi-machine: the thread may live on another machine (or, after a
+            # move, on both). Pass the event on; anything left here is still cleaned up.
+            handed_off = !relayed && Routing.hand_off_archive(agent_key: agent_key, data: data)
 
             entry = Config.thread_map_mutex.synchronize do
               map = Config.load_thread_map
@@ -26,6 +32,8 @@ module Brainiac
             end
 
             unless entry
+              return if handed_off
+
               LOG.info "[Discord:#{agent_display}] Thread #{thread_id} archived — no worktree tracked, nothing to clean up" if defined?(LOG)
               return
             end
@@ -109,6 +117,7 @@ module Brainiac
               map.delete(thread_map_key)
               Config.save_thread_map(map)
             end
+            Routing.release_thread(*thread_map_key.split(":", 2))
           end
         end
       end

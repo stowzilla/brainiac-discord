@@ -142,7 +142,41 @@ Bot tokens live in `~/.brainiac/agents.json` as each agent's `env.DISCORD_BOT_TO
 
 When Brainiac runs on several machines behind a `brainiac-hub`, only one of them (the leader) opens the Discord gateway connections. Two machines holding the same bot's gateway would both answer every message. The plugin follows the core's `:hub_leader_acquired` and `:hub_leader_lost` hooks: it starts every bot when this machine becomes the leader and closes them when it stops being the leader.
 
-A machine that is not the leader can still post to Discord, because posting uses the REST API and the token in `agents.json`. Discord conversations run on the leader. Without a hub configured, nothing changes.
+A machine that is not the leader can still post to Discord, because posting uses the REST API and the token in `agents.json`. Without a hub configured, nothing changes.
+
+### Sending work to a machine
+
+The leader hears every message and decides which machine runs it:
+
+1. **`[machine:<name>]` in the message** sends it to that machine. In a thread, the tag also moves the thread there.
+2. **A thread stays with its machine.** The machine that holds a thread's worktree owns it (hub key `discord:<agent>:<thread id>`), and follow-ups go back to it without a tag.
+3. Anything else runs on the leader.
+
+```
+@Galen [machine:mini] fix the flaky login test
+```
+
+The leader hands the raw message to the other machine through the hub. That machine runs the agent in its own worktree and posts the reply itself. Each reply ends with a small `ran on <machine>` line; set `"machine_footer": false` in `discord.json` to drop it.
+
+What the leader tells you in the channel:
+
+| Situation | What happens |
+|-----------|--------------|
+| The tag names a machine the hub has never seen | Nothing runs. The leader lists the known machines |
+| The machine you asked for is offline, new conversation | The hub's next machine by priority runs it, and the leader says which |
+| The machine you asked for is offline, existing thread | The thread stays with its owner, and the leader says so |
+| The thread's owner is offline | The message waits in the hub for it. Send it again with `[machine:<name>]` to move the thread |
+| The hub cannot be reached | Nothing runs. Send it again |
+
+Messages sent while a session is running, and the ❌ ❔ ❓ 🧠 reactions, follow the message to the machine running it. A thread being archived is passed to the machine that holds its worktree so it can clean up.
+
+Limits:
+
+- Every machine that may be asked needs the agent in `agents.json` with the same `DISCORD_BOT_TOKEN`, the project registered, and the CLI logged in. A machine without the agent's token ignores the work and the channel sees no reply.
+- Moving a thread carries over only what was pushed. The new machine makes its own worktree from the thread's branch on the remote (`discord-<agent>-<id>`), or from the default branch if nothing was pushed. The old machine keeps its worktree until the thread is archived.
+- Direct messages have no thread, so they run on the leader unless each one carries the tag.
+- The leader remembers which messages it handed off in memory. After the leader restarts or changes, reactions on those older messages are not forwarded.
+- Fork reactions and emoji feedback are handled on the leader.
 
 Every machine needs this version of the plugin. See `docs/multi-machine.md` in Brainiac.
 
