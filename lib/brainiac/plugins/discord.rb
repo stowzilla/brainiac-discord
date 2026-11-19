@@ -36,8 +36,14 @@ module Brainiac
           # Register agent lifecycle hooks
           register_agent_lifecycle_hooks!
 
-          # Start all per-agent Discord bot gateway connections
-          Brainiac::Plugins::Discord::Gateway.start_all!
+          # Start all per-agent Discord bot gateway connections. With a brainiac-hub
+          # only the leader machine holds them; the others wait for the role.
+          register_hub_leader_hooks!
+          if hub_standby?
+            LOG.info "[Discord] Multi-machine standby: gateways start when this machine becomes the leader"
+          else
+            Brainiac::Plugins::Discord::Gateway.start_all!
+          end
 
           # Start draft delivery poller
           Brainiac::Plugins::Discord::Delivery.start_poller!
@@ -48,7 +54,28 @@ module Brainiac
           LOG.info "[Discord] Plugin registered (#{Brainiac::Plugins::Discord::Gateway.bot_count} bots)"
         end
 
+        # True when a brainiac-hub is configured and another machine (or nobody
+        # yet) is the leader. Two machines holding the same bot's gateway would
+        # both answer every message, so a standby machine opens none. It can
+        # still post: sending uses the REST API and the token from agents.json.
+        def hub_standby?
+          defined?(Brainiac::Hub) && Brainiac::Hub.respond_to?(:enabled?) &&
+            Brainiac::Hub.enabled? && !Brainiac::Hub.leader?
+        end
+
         private
+
+        def register_hub_leader_hooks!
+          Brainiac.on(:hub_leader_acquired) do |_ctx|
+            LOG.info "[Discord] This machine is now the leader — starting gateways" if defined?(LOG)
+            Gateway.start_all!
+          end
+
+          Brainiac.on(:hub_leader_lost) do |_ctx|
+            LOG.info "[Discord] This machine is no longer the leader — stopping gateways" if defined?(LOG)
+            Gateway.stop_all!
+          end
+        end
 
         def register_agent_lifecycle_hooks!
           Brainiac.on(:agent_added) do |ctx|
@@ -58,7 +85,7 @@ module Brainiac
             next unless entry.is_a?(Hash)
 
             token = (entry["env"] || {})["DISCORD_BOT_TOKEN"]
-            if token
+            if token && !hub_standby?
               # Start a gateway connection for the new agent's bot
               Gateway.start_bot!(agent_key, token)
               LOG.info "[Discord] Started bot for new agent: #{display_name}" if defined?(LOG)
@@ -70,6 +97,7 @@ module Brainiac
           Brainiac.on(:agent_updated) do |ctx|
             agent_key = ctx[:agent_key]
             token = ((ctx[:entry].is_a?(Hash) && ctx[:entry]["env"]) || {})["DISCORD_BOT_TOKEN"]
+            next if hub_standby? # the leader machine picks the token up when it takes over
             next if token == Gateway.bot_token(agent_key)
 
             Config.reload! # pick up the user_mappings entry the setup step wrote

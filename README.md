@@ -138,6 +138,14 @@ Stored in `~/.brainiac/discord.json`:
 
 Bot tokens live in `~/.brainiac/agents.json` as each agent's `env.DISCORD_BOT_TOKEN`, not in `discord.json`.
 
+## Multi-machine
+
+When Brainiac runs on several machines behind a `brainiac-hub`, only one of them (the leader) opens the Discord gateway connections. Two machines holding the same bot's gateway would both answer every message. The plugin follows the core's `:hub_leader_acquired` and `:hub_leader_lost` hooks: it starts every bot when this machine becomes the leader and closes them when it stops being the leader.
+
+A machine that is not the leader can still post to Discord, because posting uses the REST API and the token in `agents.json`. Discord conversations run on the leader. Without a hub configured, nothing changes.
+
+Every machine needs this version of the plugin. See `docs/multi-machine.md` in Brainiac.
+
 ## Development
 
 ```bash

@@ -114,7 +114,16 @@ module Brainiac
             return unless info
 
             info[:thread]&.kill
+            # Killing the reconnect loop is not enough: the socket has its own reader
+            # thread and would keep receiving (and dispatching) messages.
+            close_socket(info[:ws])
             LOG.info "[Discord] Gateway stopped for #{agent_key}" if defined?(LOG)
+          end
+
+          # Stop every bot gateway (multi-machine: this machine gave up the leader role).
+          def stop_all!
+            keys = @bots_mutex.synchronize { @bots.keys }
+            keys.each { |agent_key| stop_bot!(agent_key) }
           end
 
           # Summary of all bot statuses for the API endpoint.
@@ -261,6 +270,7 @@ module Brainiac
             heartbeat_thread = nil
             last_sequence = nil
             ws = WebSocket::Client::Simple.connect(gateway_url)
+            bots_mutex.synchronize { bots[agent_key][:ws] = ws if bots[agent_key] }
 
             ws.on :message do |msg|
               next if msg.data.nil? || msg.data.empty?
@@ -304,6 +314,12 @@ module Brainiac
           # Block until the socket closes. Returns promptly if a handshake error
           # is reported (the socket never opens in that case). Backoff between
           # reconnects is owned by the caller (start_gateway_for).
+          def close_socket(websocket)
+            websocket&.close
+          rescue StandardError => e
+            LOG.warn "[Discord] Error closing gateway socket: #{e.message}" if defined?(LOG)
+          end
+
           def wait_for_disconnect(websocket, agent_display)
             # Give the handshake a brief window to complete before deciding the
             # socket is dead, so we don't treat a still-connecting socket as lost.

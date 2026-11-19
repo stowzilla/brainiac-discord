@@ -304,6 +304,121 @@ class TestDiscordGateway < Minitest::Test
   end
 end
 
+# Multi-machine: with a brainiac-hub, only the leader machine holds gateways.
+class TestDiscordHubLeader < Minitest::Test
+  Gateway = Brainiac::Plugins::Discord::Gateway
+  Discord = Brainiac::Plugins::Discord
+
+  # Stands in for core's Brainiac::Hub.
+  module FakeHub
+    class << self
+      attr_accessor :enabled, :leader
+
+      def enabled? = enabled
+      def leader? = leader
+    end
+  end
+
+  class FakeSocket
+    attr_reader :closed
+
+    def close = @closed = true
+  end
+
+  def setup
+    Brainiac.send(:remove_const, :Hub) if Brainiac.const_defined?(:Hub, false)
+    Brainiac.reset_hooks!
+    @calls = []
+  end
+
+  def teardown
+    Brainiac.send(:remove_const, :Hub) if Brainiac.const_defined?(:Hub, false)
+    Brainiac.reset_hooks!
+    Gateway.bots_mutex.synchronize { Gateway.bots.clear }
+  end
+
+  def with_hub(enabled:, leader:)
+    Brainiac.const_set(:Hub, FakeHub)
+    FakeHub.enabled = enabled
+    FakeHub.leader = leader
+  end
+
+  def stub_gateway(method)
+    calls = @calls
+    original = Gateway.method(method)
+    Gateway.define_singleton_method(method) { |*args| calls << [method, *args] }
+    yield
+  ensure
+    Gateway.define_singleton_method(method, original)
+  end
+
+  def test_not_standby_without_a_hub
+    refute Discord.hub_standby?, "a single machine keeps its gateways"
+  end
+
+  def test_standby_only_when_a_hub_is_on_and_someone_else_leads
+    with_hub(enabled: false, leader: false)
+    refute Discord.hub_standby?
+
+    with_hub(enabled: true, leader: true)
+    refute Discord.hub_standby?
+
+    with_hub(enabled: true, leader: false)
+    assert Discord.hub_standby?
+  end
+
+  def test_leader_hooks_start_and_stop_the_gateways
+    Discord.send(:register_hub_leader_hooks!)
+
+    stub_gateway(:start_all!) { Brainiac.emit(:hub_leader_acquired, machine: "mini") }
+    stub_gateway(:stop_all!) { Brainiac.emit(:hub_leader_lost, machine: "mini") }
+
+    assert_equal [[:start_all!], [:stop_all!]], @calls
+  end
+
+  def test_new_agent_does_not_open_a_gateway_on_a_standby_machine
+    Discord.send(:register_agent_lifecycle_hooks!)
+    entry = { "env" => { "DISCORD_BOT_TOKEN" => "Bot_new" } }
+
+    with_hub(enabled: true, leader: false)
+    stub_gateway(:start_bot!) do
+      Brainiac.emit(:agent_added, agent_key: "newbie", entry: entry, display_name: "Newbie")
+      Brainiac.emit(:agent_updated, agent_key: "newbie", entry: entry, display_name: "Newbie")
+    end
+    assert_empty @calls
+
+    FakeHub.leader = true
+    stub_gateway(:start_bot!) { Brainiac.emit(:agent_added, agent_key: "newbie", entry: entry, display_name: "Newbie") }
+    assert_equal [[:start_bot!, "newbie", "Bot_new"]], @calls
+  end
+
+  def test_stop_bot_closes_the_socket_so_it_stops_receiving
+    socket = FakeSocket.new
+    thread = Thread.new { sleep }
+    Gateway.bots_mutex.synchronize { Gateway.bots["galen"] = { token: "t", status: "ready", thread: thread, ws: socket } }
+
+    Gateway.stop_bot!("galen")
+    thread.join(1)
+
+    assert socket.closed
+    refute thread.alive?
+    refute Gateway.bots_status.key?("galen")
+  end
+
+  def test_stop_all_stops_every_bot
+    sockets = [FakeSocket.new, FakeSocket.new]
+    Gateway.bots_mutex.synchronize do
+      Gateway.bots["galen"] = { token: "a", status: "ready", ws: sockets[0] }
+      Gateway.bots["glados"] = { token: "b", status: "ready", ws: sockets[1] }
+    end
+
+    Gateway.stop_all!
+
+    assert sockets.all?(&:closed)
+    assert_equal 0, Gateway.bot_count
+  end
+end
+
 class TestDiscordGatewayReconnect < Minitest::Test
   Gateway = Brainiac::Plugins::Discord::Gateway
 
