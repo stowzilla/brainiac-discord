@@ -116,6 +116,7 @@ module Brainiac
             agent_key = meta["agent_key"]
             agent_name = meta["agent_name"]
             response = File.read(response_file).strip
+            response = "#{response}\n#{machine_footer(meta["machine"])}" if meta["machine"] && !response.empty? && Config.machine_footer?
 
             if response.empty?
               Api.add_reaction(channel_id, message_id, "😶", token: bot_token) if message_id
@@ -125,6 +126,11 @@ module Brainiac
             else
               deliver_to_channel_thread(response, channel_id, message_id, agent_key, agent_name, meta["clean_content"] || "", bot_token)
             end
+          end
+
+          # Multi-machine: a small line under the reply naming the machine that wrote it.
+          def machine_footer(machine)
+            "-# 🖥️ ran on #{machine}"
           end
 
           def archive_delivered(response_file, meta_file, lock_file, agent_name)

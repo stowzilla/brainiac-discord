@@ -57,6 +57,12 @@ module Brainiac
             @config["klipy_api_key"] || @config["giphy_api_key"]
           end
 
+          # Multi-machine: add a "ran on <machine>" line under each reply. On unless
+          # discord.json sets "machine_footer": false.
+          def machine_footer?
+            @config["machine_footer"] != false
+          end
+
           def channel_mappings
             @config["channel_mappings"] || {}
           end

@@ -41,19 +41,53 @@ module Brainiac
             # addressed should not activate — the message was directed at someone specific.
             return if is_thread_participant && other_agent_mentioned?(mentions, content, agent_key)
 
+            accept(message, agent_key, bot_token, bot_user_id,
+                   mentioned: mentioned, is_reply_to_bot: is_reply_to_bot, in_own_thread: in_own_thread,
+                   referenced_message: referenced_message, channel_info: channel_info, is_thread: is_thread, is_dm: is_dm)
+          end
+
+          # Run a message that has passed the "is this for me?" gates in handle.
+          # A message another machine handed over through the hub (relayed) enters
+          # here: the leader that heard it already made those decisions, and this
+          # machine has no gateway to make them with.
+          def accept(message, agent_key, bot_token, bot_user_id, mentioned:, is_reply_to_bot:, in_own_thread:,
+                     referenced_message: nil, channel_info: nil, is_thread: false, is_dm: false, relayed: false)
+            channel_id = message["channel_id"]
+            message_id = message["id"]
+            author = message["author"]
+            content = message["content"] || ""
+            is_bot = !author["bot"].nil?
+            discord_user = author["username"]
+            discord_user_id = author["id"]
+            agent_name = agent_display_name(agent_key) || agent_key.capitalize
+
             record_human_comment("discord-#{channel_id}") unless is_bot
 
             clean_content = prepare_content(content, bot_user_id)
+            channel_info, is_thread, is_dm = ensure_channel_info(channel_info, is_thread, is_dm, channel_id, bot_token)
+
+            # Multi-machine: the work may belong on another machine. Decide before
+            # downloading attachments or touching a worktree here.
+            authorized = false
+            if !relayed && Routing.active? && !(clean_content.empty? && (message["attachments"] || []).empty?)
+              Config.reload!
+              return unless authorize_user(discord_user, discord_user_id, message, channel_id, message_id, agent_name, bot_token)
+
+              authorized = true
+              return if Routing.hand_off_message(
+                agent_key: agent_key, bot_token: bot_token, bot_user_id: bot_user_id, message: message,
+                requested: parse_inline_tags(clean_content)[:machine],
+                place: is_thread ? :thread : (is_dm ? :dm : :channel), # rubocop:disable Style/NestedTernaryOperator
+                verdict: { "mentioned" => mentioned, "is_reply_to_bot" => is_reply_to_bot,
+                           "in_own_thread" => in_own_thread, "referenced_message" => referenced_message }
+              )
+            end
+
             attachment_paths = download_attachments(message, message_id, agent_key)
             clean_content = append_attachments(clean_content, attachment_paths)
             return if clean_content.empty? && attachment_paths.empty?
 
             reply_context = build_reply_context(referenced_message)
-            discord_user = author["username"]
-            discord_user_id = author["id"]
-            agent_name = agent_display_name(agent_key) || agent_key.capitalize
-
-            channel_info, is_thread, is_dm = ensure_channel_info(channel_info, is_thread, is_dm, channel_id, bot_token)
             parent_channel_id = is_thread ? channel_info&.dig("parent_id") || channel_id : channel_id
             channel_history = Api.fetch_channel_history(channel_id, message_id, token: bot_token, limit: is_thread ? 25 : 10)
             location = is_dm ? "DM" : (is_thread ? "thread" : "channel") # rubocop:disable Style/NestedTernaryOperator
@@ -63,7 +97,7 @@ module Brainiac
             reload_agent_registry!
             reload_profiles! if defined?(reload_profiles!)
             Config.reload!
-            return unless authorize_user(discord_user, discord_user_id, message, channel_id, message_id, agent_name, bot_token)
+            return unless authorized || authorize_user(discord_user, discord_user_id, message, channel_id, message_id, agent_name, bot_token)
 
             tags = parse_inline_tags(clean_content)
 
@@ -328,8 +362,7 @@ module Brainiac
           def solo_in_thread?(channel_history, agent_key)
             return true unless channel_history.is_a?(String) && !channel_history.empty?
 
-            own_username = nil
-            Gateway.each_bot { |key, info| own_username = info[:username] if key == agent_key }
+            own_username = Gateway.bot_username(agent_key)
 
             channel_history.split("\n").none? do |line|
               author = line[/\A(.+?) \[bot\]: /, 1]
@@ -859,6 +892,7 @@ module Brainiac
                                                          clean_content: clean_content[0..80],
                                                          cli_provider: detect_cli_provider(text: clean_content),
                                                          model: explicit_model, effort: explicit_effort,
+                                                         machine: Routing.machine,
                                                          created_at: Time.now.iso8601
                                                        }))
           end
@@ -956,7 +990,7 @@ module Brainiac
             branch = "discord-#{agent_key}-#{effective_thread_id[-8..]}"
 
             debounced_repo_fetch(repo_path)
-            worktree_path = create_or_reuse_worktree(repo_path: repo_path, branch: branch)
+            worktree_path = create_or_reuse_worktree(repo_path: repo_path, branch: branch, **moved_thread_base(repo_path, branch))
 
             # Register a work item so brainiac-github can route PR comments/reviews back
             # to the agent that actually owns this Discord thread's worktree. Without this,
@@ -974,6 +1008,19 @@ module Brainiac
 
             LOG.info "[Discord:#{agent_name}] Created thread worktree at #{worktree_path}" if defined?(LOG)
             [worktree_path, cli, model, effort]
+          end
+
+          # Multi-machine: a thread moved here from another machine already has its
+          # branch on the remote. Start from what that machine pushed, not from the
+          # default branch.
+          def moved_thread_base(repo_path, branch)
+            return {} unless Routing.active?
+
+            pushed = system("git", "rev-parse", "--verify", "--quiet", "origin/#{branch}^{commit}",
+                            chdir: repo_path, out: File::NULL, err: File::NULL)
+            pushed ? { base_ref: "origin/#{branch}" } : {}
+          rescue StandardError
+            {}
           end
 
           def create_chat_mode_dir(agent_key, agent_name, effective_thread_id, project_config, clean_content, thread_map_key)
@@ -1006,6 +1053,8 @@ module Brainiac
               map[thread_map_key] = entry
               Config.save_thread_map(map)
             end
+            # Multi-machine: this thread's worktree lives here now, so its follow-ups should too.
+            Routing.claim_thread(thread_map_key.split(":", 2).first, effective_thread_id)
           end
 
           def build_prompt(should_resume:, thread_worktree_path:, clean_content_for_prompt:,

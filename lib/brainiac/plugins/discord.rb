@@ -7,6 +7,7 @@ require_relative "discord/config"
 require_relative "discord/prompts"
 require_relative "discord/api"
 require_relative "discord/delivery"
+require_relative "discord/routing"
 require_relative "discord/reactions"
 require_relative "discord/branching"
 require_relative "discord/message"
@@ -181,6 +182,19 @@ module Brainiac
           app.get "/api/discord" do
             content_type :json
             Brainiac::Plugins::Discord::Gateway.bots_status.to_json
+          end
+
+          # Multi-machine: work the leader machine hands to this one through the
+          # brainiac-hub. Core only lets a request reach /hub/* with a valid hub
+          # signature, and has already acknowledged it by the time these run.
+          { Routing::MESSAGE_PATH => :receive_message,
+            Routing::REACTION_PATH => :receive_reaction,
+            Routing::ARCHIVE_PATH => :receive_archive }.each do |path, receiver|
+            app.post path do
+              content_type :json
+              Brainiac::Plugins::Discord::Routing.public_send(receiver, JSON.parse(request.body.read))
+              { status: "ok" }.to_json
+            end
           end
 
           app.get "/api/gif" do
